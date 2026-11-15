@@ -1,0 +1,1365 @@
+import math
+import model as M
+import sheet as SH
+import calc as C
+import notebook as NB
+import tetr as T
+from calc import n, r
+from model import S, sub, add, mag, scl
+
+# ---------------- html helpers ----------------
+def v(sym, sub_=None, sup=None, vec=False, up=False):
+    b = sym if up else f'<i>{sym}</i>'
+    if vec: b = f'<span class="vec">{b}</span>'
+    if sub_: b += f'<sub>{sub_}</sub>'
+    if sup: b += f'<sup>{sup}</sup>'
+    return b
+def fr(a, b): return f'<span class="frac"><span>{a}</span><span>{b}</span></span>'
+class Eq:
+    k = 0
+    @classmethod
+    def __call__(cls, body, note=''):
+        cls.k += 1
+        nt = f'<span class="eq-note">{note}</span>' if note else ''
+        return f'<div class="eq"><div class="eq-b">{body}{nt}</div><div class="eq-n">({cls.k})</div></div>'
+eq = Eq()
+def res(x): return f'<b class="res">{x}</b>'
+
+mu_l = v('μ', 'l'); mu_V = v('μ', 'V'); mu_a = v('μ', 'a'); mu_F = v('μ', 'F')
+VB, VC, VCB, VE, VEC, VS2 = (v('V', s) for s in ('B', 'C', 'CB', 'E', 'EC', 'S₂'))
+vVB, vVC, vVCB, vVE, vVEC, vVD, vVCD = (v('V', s, vec=True) for s in ('B', 'C', 'CB', 'E', 'EC', 'D', 'CD'))
+w1, w2, w3, w4 = (v('ω', s) for s in '1234')
+e2, e3, e4 = (v('ε', s) for s in '234')
+lAB, lBC, lCD, lCE, lBS2 = (v('l', s) for s in ('AB', 'BC', 'CD', 'CE', 'BS₂'))
+HE_ = v('H', 'E')
+def a_(s, sup=None, vec=False): return v('a', s, sup, vec)
+
+W = M.PA_POS
+WK = ' class="wkrow"'
+VAR = M.VARIANT; D_ = M.DATA
+GAM_NOTE = ('այսինքն՝ մեխանիզմը չի «խրվում»։' if M.GAMMA_MIN >= 40 else 'այսինքն՝ փոխանցման անկյունը փոքր է (ցանկալի է ≥ 40°), սակայն դա բխում է առաջադրանքի տվյալներից. Գրասհոֆի պայմանի համաձայն կռունկը լրիվ պտույտ է անում, և մեխանիզմը չի խրվում։')
+MUT = n(M.MU, 5).rstrip('0')            # μ_l as written in the notebook
+MVT = n(M.MUV, 3); MAT = n(M.MUA, 2)
+def si(mm): return n(mm/1000, 3)        # mm -> m, e.g. 0,235
+LCDT = si(D_['lCD'])
+vcw = C.vchain(W); acw = C.achain(W)
+ROT1 = '↺' if M.CCW else '↻'
+ROT1_T = 'ժամացույցի սլաքի հակառակ ուղղությամբ' if M.CCW else 'ժամացույցի սլաքի ուղղությամբ'
+WORK = [i for i in range(M.NPOS) if M.working(i)]
+WR = f'{WORK[0]}–{WORK[-1]}'
+
+P2 = W; MUVT = MVT; MUAT = MAT; vc2 = vcw; ac2 = acw
+# ---------------- sheet svg ----------------
+sheet_svg = SH.build('sh')
+sheet2_svg = SH.build2('sh2')
+syn_svg = SH.build('syn', only={'grid', 'constr', 'synonly', 'base', 'xlabels', 'dims'}, viewbox='4 2 240 264',
+                   title_attr='Եզրային դիրքերի կառուցումը')
+
+def pt_sheet(p): return f'<td class="n">{n(p[0])}</td><td class="n">{n(p[1])}</td>'
+def ptxt(p): return f'({n(p[0])}; {n(p[1])})'
+
+# key points table
+Dp, Ap = S(M.D), S(M.A)
+E0s, E0ps, C0s, C0ps = S(M.E0), S(M.E0p), S(M.C0), S(M.C0p)
+key_rows = [
+    ('D', Dp, 'D', 'լծակի անշարժ հոդ, ուղղորդը (y–y) անցնում է D-ով'),
+    ('A', Ap, 'A', f'կռունկի անշարժ հոդ (D-ից {n(M.L1S,0)} մմ աջ, {n(M.L2S)} մմ ցածր)'),
+    ('C₀′', C0ps, 'C0p', f'C-ի ստորին եզրային դիրք (DC-ն ուղղաձիգից β = {n(M.BETA,0)}°)'),
+    ('E₀′', E0ps, 'E0p', 'սողնակի ստորին եզրային դիրք'),
+    ('E₀', E0s, 'E0', f'սողնակի վերին եզրային դիրք (E₀′-ից {n(M.H)} մմ վեր)'),
+    ('C₀', C0s, 'C0', 'C-ի վերին եզրային դիրք'),
+    ('B₀', S(M.B0), 'B0', 'C₀–A–B₀ մեկ ուղղի վրա (ծալված), 0-րդ դիրք'),
+    ('B₀′', S(M.B0p), 'B0p', 'A–B₀′–C₀′ մեկ ուղղի վրա (ձգված)'),
+]
+key_tbl = ''.join(f'<tr data-pt="{k}"><th scope="row">{lab}</th>{pt_sheet(p)}<td class="t">{note}</td></tr>' for lab, p, k, note in key_rows)
+
+pos_tbl = ''
+for i, q in enumerate(M.POS):
+    Bq, Cq, Eq_, S2q = S(q['B']), S(q['C']), S(q['E']), S(q['S2'])
+    stroke = 'աշխ.' if M.working(i) else ('եզր.' if i == 0 else 'պարապ')
+    pos_tbl += (f'<tr data-pt="B{i} C{i} E{i}"{WK if i == W else ""}><th scope="row">{i}</th>'
+                f'<td class="n">{45*i}°</td>{pt_sheet(Bq)}{pt_sheet(Cq)}<td class="n">{n(Eq_[1])}</td>'
+                f'{pt_sheet(S2q)}<td class="t">{stroke}</td></tr>')
+
+# plan tables (absolute coordinates on the sheet)
+def vplan_tbl(i):
+    vv = M.vplan(i); pole = M.PV2[i]; ch = C.vchain(i)
+    names = [('p', 'p (a, d)', None, None), ('b', 'b', ch['pb'], C.VB), ('c', 'c', ch['pc'], ch['VC']),
+             ('e', 'e', ch['pe'], ch['VE']), ('s2', 's₂', ch['ps2'], ch['VS2'])]
+    rows = ''
+    for k, lab, ln, val in names:
+        p = add(pole, vv[k])
+        if ch['pc'] == 0 and k in ('c', 'e'):
+            rows += f'<tr data-pt="v{i}p"><th scope="row">{lab}</th><td class="n" colspan="2">≡ p</td><td class="n">0</td><td class="n">0</td></tr>'
+            continue
+        lv = '—' if ln is None else n(ln)
+        vl = '—' if val is None else n(val, 3)
+        rows += f'<tr data-pt="v{i}{k}"><th scope="row">{lab}</th>{pt_sheet(p)}<td class="n">{lv}</td><td class="n">{vl}</td></tr>'
+    return rows
+def aplan_tbl():
+    aa = M.aplan(W); pole = M.PA; ch = acw
+    names = [('pi', 'π (a, d)', None, None), ('b', 'b', ch['pib'], C.AB_ACC), ('n2', 'n₂', ch['bn2'], ch['aCBn']),
+             ('c', 'c', ch['pic'], ch['aC']), ('n3', 'n₃', ch['pin3'], ch['aCDn']), ('n4', 'n₄', ch['cn4'], ch['aECn']),
+             ('e', 'e', ch['pie'], ch['aE']), ('s2', 's₂', ch['pis2'], ch['aS2'])]
+    seg = dict(b='πb', n2='bn₂', c='πc', n3='πn₃', n4='cn₄', e='πe', s2='πs₂')
+    rows = ''
+    for k, lab, ln, val in names:
+        p = add(pole, aa[k])
+        lv = '—' if ln is None else f'{seg[k]} = {n(ln)}'
+        vl = '—' if val is None else n(val, 3)
+        rows += f'<tr data-pt="a{W}{k}"><th scope="row">{lab}</th>{pt_sheet(p)}<td class="n">{lv}</td><td class="n">{vl}</td></tr>'
+    return rows
+
+# F_re diagram table
+wF = M.FMAX/M.MUF
+fre_rows = ''
+for i, q in enumerate(M.POS):
+    s = q['sE']/M.H; work = M.working(i)
+    f = M.fre_shape(s) if work else 0.0
+    Eq_ = S(q['E']); xe = M.DIAG_X + wF*f
+    kind = 'աշխատանքային' if work else ('եզրային (E₀)' if i == 0 else 'պարապ')
+    fre_rows += (f'<tr{WK if i == W else ""}><th scope="row">{i}</th><td class="t">{kind}</td><td class="n">{n(q["sE"])}</td>'
+                 f'<td class="n">{n(q["sE"]*M.MU, 4)}</td><td class="n">{n(s, 2)}</td>'
+                 f'<td class="n">{"≈ " + format(int(round(M.FMAX*f, -1)), ",").replace(",", " ") if f > 0 else "0"}</td>'
+                 f'<td class="n">{n(wF*f)}</td><td class="n">{n(xe)}</td><td class="n">{n(Eq_[1])}</td></tr>')
+
+# all-positions tables
+vel_rows = ''
+for i in range(8):
+    c = C.vchain(i)
+    vel_rows += (f'<tr{WK if i == W else ""}><th scope="row">{i}</th><td class="n">{45*i}°</td>'
+                 f'<td class="n">{n(c["pc"])}</td><td class="n">{n(c["VC"],3)}</td>'
+                 f'<td class="n">{n(c["bc"])}</td><td class="n">{n(c["VCB"],3)}</td>'
+                 f'<td class="n">{n(c["ce"])}</td><td class="n">{n(c["VEC"],3)}</td>'
+                 f'<td class="n">{n(c["pe"])}</td><td class="n">{n(c["VE"],3)} {c["VEs"]}</td>'
+                 f'<td class="n">{n(c["ps2"])}</td><td class="n">{n(c["VS2"],3)}</td>'
+                 f'<td class="n">{n(c["w2"],2)} {c["w2s"]}</td><td class="n">{n(c["w3"],2)} {c["w3s"]}</td><td class="n">{n(c["w4"],2)} {c["w4s"]}</td></tr>')
+acc_rows = ''
+for i in range(8):
+    c = C.achain(i)
+    acc_rows += (f'<tr{WK if i == W else ""}><th scope="row">{i}</th>'
+                 f'<td class="n">{n(c["aCBn"],3)}</td><td class="n">{n(c["aCBt"],3)}</td><td class="n">{n(c["aCDn"],3)}</td>'
+                 f'<td class="n">{n(c["aCDt"],3)}</td><td class="n">{n(c["aC"],3)}</td>'
+                 f'<td class="n">{n(c["aECn"],3)}</td><td class="n">{n(c["aECt"],3)}</td><td class="n">{n(c["aE"],3)} {c["aEs"]}</td>'
+                 f'<td class="n">{n(c["aS2"],3)}</td><td class="n">{n(c["e2"],2)} {c["e2s"]}</td><td class="n">{n(c["e3"],2)} {c["e3s"]}</td>'
+                 f'<td class="n">{n(c["e4"],2)} {c["e4s"]}</td></tr>')
+rel_v = ''
+for i in range(8):
+    vv = M.vplan(i)
+    rel_v += f'<tr><th scope="row">{i}</th>' + ''.join(f'<td class="n">{n(vv[k][0])}; {n(vv[k][1])}</td>' for k in ('b', 'c', 'e', 's2')) + '</tr>'
+rel_a = ''
+for i in range(8):
+    aa = M.aplan(i)
+    rel_a += f'<tr><th scope="row">{i}</th>' + ''.join(f'<td class="n">{n(aa[k][0])}; {n(aa[k][1])}</td>' for k in ('b', 'n2', 'c', 'n3', 'n4', 'e', 's2')) + '</tr>'
+
+# ---------------- numbers used in text ----------------
+S2w = S(M.POS[W]['S2'])
+grash_l = C.LAB + M.AD; grash_r = C.LBC + M.lCD
+DE0P = r(2*M.CD*math.cos(math.radians(M.BETA))); DE0 = r(DE0P - M.H)
+COSG = DE0/(2*r(M.CD)); GAM = r(math.degrees(math.acos(COSG)), 1)
+b0_dn = r(-M.TH0, 1); b0p_up = r(180-M.TH0P, 1)       # B₀ below the horizontal (right), B₀′ above it (left)
+
+# ---------------- step-by-step derivation of the key results ----------------
+def qe(body, note=''):
+    """unnumbered equation line (the numbered ones belong to §1–§3)"""
+    nt = f'<span class="eq-note">{note}</span>' if note else ''
+    return f'<div class="eq"><div class="eq-b">{body}{nt}</div><div class="eq-n"></div></div>'
+def step(title, result, why, body, where=''):
+    wh = f'<p class="where"><b>Գծագրում՝</b> {where}</p>' if where else ''
+    return (f'<li class="cstep"><div class="cstep-h"><h3>{title}</h3><p class="cstep-r">{result}</p></div>'
+            f'<p class="why">{why}</p>{body}{wh}</li>')
+ac0_dx, ac0_dy = r(Ap[0]-C0s[0]), r(Ap[1]-C0s[1]); ac0p_dx, ac0p_dy = r(Ap[0]-C0ps[0]), r(Ap[1]-C0ps[1])
+W1SQ = r(C.W1**2, 2)
+psi_sub = (f'<ol class="sub">'
+           f'<li><b>Ստորին դիրք.</b> DC-ն ուղղաձիգից շեղում ենք β = {n(M.BETA,0)}° → C₀′{ptxt(C0ps)}։ Քանի որ CE = CD, DCE եռանկյունը հավասարասրուն է, և E-ն միշտ D-ից ուղիղ ներքև է. DE₀′ = 2·CD*·cos β = 2·{n(M.CD)}·cos {n(M.BETA,0)}° = {n(DE0P)} մմ → E₀′{ptxt(E0ps)}։</li>'
+           f'<li><b>Վերին դիրք.</b> E₀′-ից բարձրանում ենք {HE_}* = {n(M.H)} մմ → E₀{ptxt(E0s)}, DE₀ = {n(DE0)} մմ։ E₀-ից R = CE* = {n(M.CE)} մմ աղեղը հատում է C-ի հետագիծը C₀{ptxt(C0s)} կետում։</li>'
+           f'<li><b>Անկյունը.</b> DC₀-ն ուղղաձիգից շեղված է γ անկյունով. cos γ = DE₀/(2·CD*) = {n(DE0)}/{n(2*M.CD)} = {n(COSG,4)} → γ = {n(GAM)}°։</li></ol>')
+calc_steps = [
+    step('1. Երկարությունների մասշտաբը', f'{mu_l} = {MUT} մ/մմ',
+         f'Իրական մեխանիզմը թղթի վրա չի տեղավորվի, ուստի այն գծում ենք փոքրացված։ <i>L</i><sub>1</sub> = {si(D_["L1"])} մ հեռավորությունը գծում ենք {n(M.L1S,0)} մմ. {mu_l}-ն ցույց է տալիս, թե գծագրի 1 մմ-ը քանի մետր է իրականում։',
+         qe(f"{mu_l} = {fr('իրական երկարություն', 'գծագրային երկարություն')} = {fr(v('L','1'), v('L','1')+'*')} = {fr(si(D_['L1'])+' մ', n(M.L1S,0)+' մմ')} = {res(MUT+' մ/մմ')}")
+         + f'<p>Հակառակը՝ ցանկացած իրական երկարություն գծագրային դարձնելու համար այն բաժանում ենք {mu_l}-ի. օր.՝ CD* = {LCDT} / {MUT} = {n(M.CD)} մմ։</p>'),
+    step('2. Լծակի ճոճման անկյունը', f'<i>ψ</i> = {n(M.PSI)}°',
+         'CD լծակը ճոճվում է երկու եզրային դիրքերի միջև։ Այդ դիրքերը որոշվում են սողնակի ամենացածր (E₀′) և ամենաբարձր (E₀) դիրքերով։ ψ-ն այդ երկու դիրքերում DC-ի միջև եղած անկյունն է։',
+         psi_sub + qe(f"<i>ψ</i> = ∠C₀DC₀′ = γ − β = {n(GAM)}° − {n(M.BETA,0)}° = {res(n(M.PSI)+'°')}"),
+         'անկյունաչափով չափեք C₀DC₀′ անկյունը։'),
+    step('3. Կռունկ AB և շարժաթև BC', f'AB* = {n(C.AB)} մմ, BC* = {n(C.BC)} մմ',
+         'Լծակի եզրային դիրքերում կռունկը և շարժաթևը մեկ ուղղի վրա են։ C₀ դիրքում դրանք ծալված են (B₀—A—C₀, A-ն մեջտեղում), C₀′ դիրքում՝ ձգված (A—B₀′—C₀′)։ Այսպիսով A-ից մինչև C₀ և C₀′ երկու հեռավորությունը տալիս են երկու հավասարում՝ երկու անհայտով։',
+         f'<p>Կետերը՝ C₀{ptxt(C0s)}, C₀′{ptxt(C0ps)}, A{ptxt(Ap)}։</p>'
+         + qe(f"AC₀ = √({n(ac0_dx)}² + {n(ac0_dy)}²) = {n(C.AC0)} մմ,&nbsp;&nbsp; AC₀′ = √({n(ac0p_dx)}² + {n(ac0p_dy)}²) = {n(C.AC0P)} մմ", 'կամ չափեք քանոնով')
+         + qe(f'<span class="sys"><span>BC − AB = {n(C.AC0)}</span><span>AB + BC = {n(C.AC0P)}</span></span>&nbsp; ⇒ &nbsp;BC = {fr(n(C.AC0P)+" + "+n(C.AC0), "2")} = {res(n(C.BC)+" մմ")},&nbsp;&nbsp; AB = {fr(n(C.AC0P)+" − "+n(C.AC0), "2")} = {res(n(C.AB)+" մմ")}')
+         + '<p>Իրական երկարությունները ստանալու համար գծագրայինը բազմապատկում ենք մասշտաբով.</p>'
+         + qe(f"{lAB} = {n(C.AB)}·{MUT} = {res(n(C.LAB,4)+' մ')},&nbsp;&nbsp; {lBC} = {n(C.BC)}·{MUT} = {res(n(C.LBC,4)+' մ')}")),
+    step('4. Կռունկի անկյունային արագությունը', f'{w1} = {n(C.W1,3)} ռադ/վ',
+         f'<i>n</i><sub>1</sub>-ը տրված է պտույտ/րոպե-ով, իսկ հաշվարկի համար պետք է ռադ/վ։ Մեկ պտույտը 2π ռադ է, մեկ րոպեն՝ 60 վ. հետևաբար {w1} = 2π<i>n</i><sub>1</sub>/60 = π<i>n</i><sub>1</sub>/30։',
+         qe(f"{w1} = {fr('π·'+v('n','1'), '30')} = {fr('3,1416·'+str(D_['n1']), '30')} = {res(n(C.W1,3)+' ռադ/վ')}")),
+    step('5. B կետի արագությունը և արագությունների մասշտաբը', f'{VB} = {n(C.VB,3)} մ/վ, pb = {n(C.PB)} մմ',
+         f'B կետը պտտվում է A-ի շուրջը AB շառավղով, ուստի նրա արագությունը հավասար է անկյունային արագության և շառավղի արտադրյալին։ Այն ուղղահայաց է AB-ին և ուղղված է պտույտի կողմը ({ROT1})։ Կռունկը պտտվում է հավասարաչափ, ուստի V<sub>B</sub>-ն բոլոր դիրքերում նույնն է։',
+         qe(f"{VB} = {w1}·{lAB} = {n(C.W1,3)}·{n(C.LAB,4)} = {res(n(C.VB,3)+' մ/վ')}")
+         + f'<p>Արագությունների պլանում V<sub>B</sub>-ն պատկերում ենք pb հատվածով։ Օրինակի տետրում pb-ն վերցված է ≈ 50 մմ. մասշտաբը կլորացնում ենք՝ {mu_V} = {MVT} (մ/վ)/մմ։</p>'
+         + qe(f"pb = {fr(VB, mu_V)} = {fr(n(C.VB4,4), MVT)} = {res(n(C.PB)+' մմ')}"),
+         'pb հատվածը տարեք p բևեռից ⊥ AB։'),
+    step('6. B կետի արագացումը և արագացումների մասշտաբը', f'{a_("B")} = {n(C.AB_ACC,3)} մ/վ², πb = {n(C.PIB)} մմ',
+         f'{w1} = const, ուստի շոշափող արագացում չկա (ε<sub>1</sub> = 0)։ Մնում է միայն նորմալ (կենտրոնաձիգ) արագացումը, որը միշտ ուղղված է B-ից դեպի պտտման կենտրոն A։',
+         qe(f"{a_('B')} = {w1}²·{lAB} = {n(C.W1,3)}²·{n(C.LAB,4)} = {n(W1SQ,2)}·{n(C.LAB,4)} = {res(n(C.AB_ACC,3)+' մ/վ²')}")
+         + f'<p>Արագացումների պլանի մասշտաբը՝ {mu_a} = {MAT} (մ/վ²)/մմ.</p>'
+         + qe(f"πb = {fr(a_('B'), mu_a)} = {fr(n(C.AB_ACC,3), MAT)} = {res(n(C.PIB)+' մմ')}", 'πb ∥ AB, B → A'),
+         'πb հատվածը տարեք π բևեռից AB-ին զուգահեռ, B-ից A ուղղությամբ։'),
+    step('7. Աշխատանքային և պարապ ընթացքների անկյունները', f'{n(M.PHI_W)}° / {n(M.PHI_I)}°',
+         'Աշխատանքային ընթացքում սողնակը E₀-ից իջնում է E₀′, պարապ ընթացքում վերադառնում է։ Պետք է պարզել, թե այդ ընթացքում կռունկը քանի աստիճան է պտտվում։ Սկիզբը B₀ դիրքն է (C₀A ուղղի շարունակության վրա), վերջը՝ B₀′ (AC₀′ հատվածի վրա)։',
+         f'<p>A-ով տանենք հորիզոնական. AB₀-ն աջ կողմում է, հորիզոնականից {n(b0_dn)}° ցածր, AB₀′-ը՝ ձախ կողմում, {n(b0p_up)}° բարձր։ Ժամացույցի սլաքի հակառակ ուղղությամբ B₀-ից B₀′ կռունկը նախ բարձրանում է {n(b0_dn)}°-ով մինչև հորիզոնական, ապա վերևի կիսաշրջանով անցնում 180° − {n(b0p_up)}°։</p>'
+         + qe(f"<i>φ</i><sub>աշխ</sub> = {n(b0_dn)}° + 180° − {n(b0p_up)}° = {res(n(M.PHI_W)+'°')},&nbsp;&nbsp; <i>φ</i><sub>պ</sub> = 360° − {n(M.PHI_W)}° = {res(n(M.PHI_I)+'°')}")
+         + qe(f"<i>K</i> = {fr(v('φ','աշխ'), v('φ','պ'))} = {fr(n(M.PHI_W), n(M.PHI_I))} = {n(M.PHI_W/M.PHI_I,2)}", 'K &gt; 1. պարապ ընթացքն ավելի արագ է')),
+]
+calc_html = ('<details class="more calc-more"><summary>Ինչպես են ստացվել այս թվերը (7 քայլ)</summary>'
+             '<p class="hint prose">Յուրաքանչյուր քայլում՝ ինչու ենք այդպես հաշվում, բանաձևը և տեղադրված թվերը։ Մանրամասն կառուցումը՝ §1–§3 բաժիններում։</p>'
+             '<ol class="calc">' + ''.join(calc_steps) + '</ol></details>')
+
+# ---------------- page frame: top bar + side navigation (one panel is shown at a time) ----------------
+PANELS = [  # (id, group, nav label, kicker shown above the panel title)
+    ('overview', 'Սկիզբ', 'Ինչ պետք է անել', 'Սկիզբ'),
+    ('data', 'Սկիզբ', 'Տվյալներ և արդյունքներ', 'Սկիզբ'),
+    ('s1', 'Տետրի հաշվարկը', '§1 Սինթեզ և դիրքեր', 'Տետրի հաշվարկը'),
+    ('s2', 'Տետրի հաշվարկը', '§2 Արագություններ', 'Տետրի հաշվարկը'),
+    ('s3', 'Տետրի հաշվարկը', '§3 Արագացումներ', 'Տետրի հաշվարկը'),
+    ('s4', 'Տետրի հաշվարկը', '§4 Բերված մոմենտ', 'Տետրի հաշվարկը'),
+    ('s5', 'Տետրի հաշվարկը', '§5 Աշխատանքներ և ΔE', 'Տետրի հաշվարկը'),
+    ('s6', 'Տետրի հաշվարկը', '§6 Բերված իներցիայի մոմենտ', 'Տետրի հաշվարկը'),
+    ('sheet1', 'Թերթեր (գծել)', 'Թերթ 1. դիրքերի պլան (A3)', 'Թերթեր (գծել)'),
+    ('sheet2', 'Թերթեր (գծել)', 'Թերթ 2. արագություններ (A3)', 'Թերթեր (գծել)'),
+    ('sheet3', 'Թերթեր (գծել)', 'Թերթ 3. գրաֆիկներ (A4)', 'Թերթեր (գծել)'),
+    ('sheet4', 'Թերթեր (գծել)', 'Թերթ 4. իներցիայի մոմենտ (A3)', 'Թերթեր (գծել)'),
+    ('fre', 'Թերթեր (գծել)', 'F<sub>re</sub> գրաֆիկ', 'Թերթեր (գծել)'),
+    ('tables', 'Թվեր', 'Բոլոր դիրքերի աղյուսակները', 'Թվեր'),
+]
+def side_nav():
+    out, grp = '', None
+    for pid, g, lab, _ in PANELS:
+        if g != grp:
+            out += ('</div>' if grp else '') + f'<div class="grp"><h4>{g}</h4>'; grp = g
+        out += f'<a href="#{pid}" data-nav="{pid}">{lab}</a>'
+    out += ('</div><div class="grp"><h4>Այլ էջեր</h4>'
+            '<a class="ext" href="tetr.html">✍ Տետրում գրելու</a><a class="ext" href="bacatrutyun.html">Բացատրություն</a></div>')
+    return f'<nav class="side" aria-label="Բաժիններ">{out}</nav>'
+def pager(pid):
+    k = [p[0] for p in PANELS].index(pid)
+    prev = f'<a class="pg-prev" href="#{PANELS[k-1][0]}"><span>Նախորդը</span>{PANELS[k-1][2]}</a>' if k else '<span></span>'
+    nxt = f'<a class="pg-next" href="#{PANELS[k+1][0]}"><span>Հաջորդը</span>{PANELS[k+1][2]}</a>' if k + 1 < len(PANELS) else '<a class="pg-next" href="tetr.html"><span>Հաջորդը</span>✍ Տետրում գրելու</a>'
+    return f'<nav class="pager" aria-label="Էջավորում">{prev}{nxt}</nav>'
+def panel(pid, body):
+    """wrap a section's body: kicker + body (which starts with its own h2) + prev/next links"""
+    kick = next(p[3] for p in PANELS if p[0] == pid)
+    return f'\n<section class="panel" id="{pid}" tabindex="-1"><p class="kicker">{kick}</p>{body}{pager(pid)}</section>'
+
+header = f'''
+<script>try{{var t=localStorage.getItem('tmm-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}}catch(e){{}}document.documentElement.classList.add('js')</script>
+<header class="top">
+  <a class="back" href="./" aria-label="Կուրսային աշխատանքի գլխավոր էջ">←</a>
+  <div class="top-t"><b>Վեցօղակ լծակավոր մեխանիզմի կինեմատիկան</b><span>ՄՄՏ · առաջադրանք {M.TASK} · տարբերակ <mark>{VAR}</mark></span></div>
+  <a class="top-tetr" href="tetr.html">✍ Տետրում գրելու</a>
+  <button class="theme-btn" type="button" data-theme-toggle aria-label="Փոխել լուսավոր/մութ ռեժիմը"></button>
+</header>'''
+
+data_sec = f'''
+<div class="block" id="data-given">
+  <h3 class="bh">Տվյալներ</h3>
+  <div class="grid2">
+    <div class="prose">
+      <p>Մեխանիզմը վեցօղակ է. <b>ABCD</b> կռունկա-ճոճաթևային քառօղակին միացված է <b>CE</b> շարժաթևը և <b>E</b> սողնակը, որը լծակի ճոճումը վերածում է սողնակի ուղղաձիգ շարժման։</p>
+      <ul class="links">
+        <li><span class="ln">1</span><span><b>AB</b>՝ կռունկ, պտտվում է A-ի շուրջը <i>n</i><sub>1</sub> = {D_['n1']} պտ/րոպ, {ROT1_T} ({ROT1})</span></li>
+        <li><span class="ln">2</span><span><b>BC</b>՝ շարժաթև, ծանրության կենտրոնը՝ S<sub>2</sub></span></li>
+        <li><span class="ln">3</span><span><b>CD</b>՝ լծակ (ճոճաթև), ճոճվում է D-ի շուրջը</span></li>
+        <li><span class="ln">4</span><span><b>CE</b>՝ շարժաթև, {lCE} = {lCD}</span></li>
+        <li><span class="ln">5</span><span><b>E</b>՝ սողնակ, շարժվում է D-ով անցնող ուղղաձիգ y–y ուղղորդով</span></li>
+        <li><span class="ln">0</span><span>անշարժ օղակ՝ A, D հոդերը և ուղղորդը</span></li>
+      </ul>
+    </div>
+    <div class="prose">
+      <h3>Լրացուցիչ պայմաններ</h3>
+      <ol class="conds">
+        <li>{lCE} = {lCD} = <b>{LCDT} մ</b>. 4 օղակի երկարությունը</li>
+        <li>{lBS2} = 0,5·{lBC}. 2 օղակի զանգվածի կենտրոնը</li>
+        <li><i>M</i><sub>m</sub> = const. շարժիչ ուժերի մոմենտը</li>
+        <li><i>δ</i> = 0,05. շարժման անհավասարաչափության գործակիցը</li>
+        <li><i>β</i> = 3°÷5°. ընդունում ենք <b>β = {n(M.BETA,0)}°</b></li>
+      </ol>
+    </div>
+  </div>
+  <div class="tscroll">
+    <table class="task">
+      <caption>Աղյուսակի {VAR}-րդ տող</caption>
+      <thead>
+        <tr><th scope="col">Նշանակում</th><th scope="col"><i>H</i><sub>E</sub></th><th scope="col"><i>L</i><sub>1</sub></th><th scope="col"><i>L</i><sub>2</sub></th><th scope="col"><i>l</i><sub>CD</sub></th><th scope="col"><i>n</i><sub>1</sub></th><th scope="col"><i>G</i><sub>2</sub></th><th scope="col"><i>G</i><sub>5</sub></th><th scope="col"><i>I</i><sub>S₂</sub></th><th scope="col"><i>F</i><sub>re</sub><sup>max</sup></th></tr>
+      </thead>
+      <tbody>
+        <tr class="unit"><th scope="row">Միավոր</th><td>մմ</td><td>մմ</td><td>մմ</td><td>մմ</td><td>պտ/րոպ</td><td>Ն</td><td>Ն</td><td>10⁻³ կգ·մ²</td><td>10² Ն</td></tr>
+        <tr class="val"><th scope="row"><mark>{VAR}</mark></th>{''.join(f'<td>{D_[k]}</td>' for k in ('HE','L1','L2','lCD','n1','G2','G5','IS2','Fmax'))}</tr>
+        <tr class="si"><th scope="row">SI</th>{''.join(f'<td>{si(D_[k])} մ</td>' for k in ('HE','L1','L2','lCD'))}<td>{D_['n1']} պտ/րոպ</td><td>{D_['G2']} Ն</td><td>{D_['G5']} Ն</td><td>{n(D_['IS2']/1000,2)} կգ·մ²</td><td>{D_['Fmax']*100} Ն</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">Այս թերթի (կինեմատիկայի) համար պետք են <i>H</i><sub>E</sub>, <i>L</i><sub>1</sub>, <i>L</i><sub>2</sub>, {lCD} = {lCE}, <i>n</i><sub>1</sub>, <i>β</i> և F<sub>re</sub> գրաֆիկի ձևը։ <i>G</i><sub>2</sub>, <i>G</i><sub>5</sub> և F<sub>re</sub><sup>max</sup>-ը պետք են <a href="#s4">§4</a>-ում (բերված մոմենտ), <i>M</i><sub>m</sub>-ը որոշվում է <a href="#s5">§5</a>-ում, <i>I</i><sub>S₂</sub>-ը պետք է <a href="#s6">§6</a>-ում (բերված իներցիայի մոմենտ), <i>δ</i>-ն՝ հետագա բաժիններում (թափանիվ)։ <i>I</i><sub>S₂</sub>-ի միավորը՝ 10⁻³ կգ·մ² (դասախոսի ասածով)։</p>
+</div>'''
+
+
+def _tg(first, last, k=None):
+    num = lambda x: x[1:].replace('a', 'ա')
+    return f'<a class="tg tg-t" href="tetr.html#{first}">✍ Տետր՝ էջ {num(first)}' + (f'–{num(last)}' if last != first else '') + '</a>'
+def _ts(k, href=None):
+    return f'<a class="tg tg-s" href="#{href or "sheet" + str(k)}">📐 Թերթ {k}</a>'
+road = [
+    ('Հաշվեք մասշտաբը և գծագրային երկարությունները', '<a href="#s1">§1</a>', [_tg('p10', 'p11')]),
+    ('Գծեք մեխանիզմի 8 դիրքերը', '<a href="#sheet1">Թերթ 1</a>՝ քայլ առ քայլ ստուգաթերթով', [_ts(1)]),
+    ('Չափեք AC₀, AC₀′ և հաշվեք AB, BC', '<a href="#s1">§1, կետ 3</a>', [_tg('p11', 'p11')]),
+    ('Կառուցեք 8 արագությունների պլանները', 'Բանաձևերը՝ <a href="#s2">§2</a>', [_ts(2), _tg('p11', 'p13')]),
+    (f'Կառուցեք {P2}-րդ դիրքի արագացումների պլանը', '<a href="#sheet1">Թերթ 1</a>-ի աջ մասում, <a href="#s3">§3</a>', [_ts(1), _tg('p14', 'p16')]),
+    ('Գծեք F<sub>re</sub> գրաֆիկը և լրացրեք մակագրությունները', '<a href="#fre">F<sub>re</sub> գրաֆիկ</a>', [_ts(1, 'fre')]),
+    ('Հաշվեք բերված մոմենտը և կառուցեք M<sub>P</sub>(φ) գրաֆիկը', '<a href="#s4">§4</a>', [_tg('p17', 'p18'), _ts(3)]),
+    ('Ինտեգրեք M<sub>P</sub>(φ)-ն և կառուցեք A<sub>r</sub>, A<sub>m</sub>, ΔE գրաֆիկները', '<a href="#s5">§5</a>', [_tg('p19', 'p20'), _ts(3)]),
+    ('Հաշվեք բերված իներցիայի մոմենտը և կառուցեք I<sub>P</sub>(φ) գրաֆիկը', '<a href="#s6">§6</a>', [_tg('p21', 'p22'), _ts(4)]),
+]
+_groups = [('§1', 'Սինթեզ և դիրքեր', ['p10', 'p11']), ('§2', 'Արագություններ', ['p12', 'p13', 'p13a']),
+           ('§3', 'Արագացումներ', ['p14', 'p15', 'p16']), ('§4', 'Բերված մոմենտ', ['p17', 'p18']),
+           ('§5', 'Աշխատանքներ և ΔE', ['p19', 'p20']), ('§6', 'Բերված իներցիայի մոմենտ', ['p21', 'p22'])]
+_pg = {x[0]: x for x in T.PAGES}
+assert sorted(sum((g[2] for g in _groups), [])) == sorted(_pg)
+cp_groups = ''.join(
+    f'<div class="cp-g"><h4><b>{g}</b> {gt}</h4>' + ''.join(
+        f'<a class="cp-row" href="tetr.html#{pid}" data-pg="{pid}"><span class="cp-n">{_pg[pid][2]}</span>'
+        f'<span class="cp-t">{_pg[pid][3]}</span><span class="cp-ck" aria-hidden="true"></span></a>' for pid in pids) + '</div>'
+    for g, gt, pids in _groups)
+sheet_cards = [
+    ('thumb_A3_1.jpg', 900, 646, 'Թերթ 1. Դիրքերի պլան', 'A3 · հորիզոնական', 'sheet1', 'chertej_A3_1.pdf',
+     'Թերթ 1-ի նախադիտում՝ մեխանիզմի 8 դիրքերը, F<sub>re</sub> գրաֆիկը և արագացումների պլանը',
+     ['Մեխանիզմի 8 դիրքերը', 'F<sub>re</sub> գրաֆիկը', f'{P2}-րդ դիրքի արագացումների պլանը']),
+    ('thumb_A3_2.jpg', 900, 646, 'Թերթ 2. Արագությունների պլաններ', 'A3 · հորիզոնական', 'sheet2', 'chertej_A3_2.pdf',
+     'Թերթ 2-ի նախադիտում՝ 8 արագությունների պլան 4 × 2 վանդակում',
+     ['8 արագությունների պլան (դիրքեր 0–7)', 'Դասավորված 4 × 2 վանդակում']),
+    ('thumb_A4_graf.jpg', 636, 900, 'Թերթ 3. Գրաֆիկներ', 'A4 · ուղղաձիգ', 'sheet3', 'chertej_A4_graf.pdf',
+     'Թերթ 3-ի նախադիտում՝ M<sub>P</sub>(φ), A<sub>r</sub>, A<sub>m</sub> և ΔE գրաֆիկները',
+     ['M<sub>P</sub>(φ) գրաֆիկը', 'A<sub>r</sub>, A<sub>m</sub> (գրաֆիկական ինտեգրում)', 'ΔE գրաֆիկը']),
+    ('thumb_A3_4.jpg', 900, 646, 'Թերթ 4. Իներցիայի մոմենտ', 'A3 · հորիզոնական', 'sheet4', 'chertej_A3_4.pdf',
+     'Թերթ 4-ի նախադիտում՝ I<sub>P</sub>(φ) (շրջված 90°-ով) և ΔT(φ) գրաֆիկները',
+     ['I<sub>P</sub>(φ) գրաֆիկը՝ շրջված 90°-ով', 'ΔT(φ) գրաֆիկը (= ΔE)', 'Ազատ տեղ հաջորդ քայլի համար']),
+]
+sc_html = ''.join(
+    f'<article class="sc"><a class="sc-img" href="#{pid}"><img src="{img}" width="{w}" height="{h}" loading="lazy" alt="{alt}"></a>'
+    f'<div class="sc-b"><span class="badge">{badge}</span><h4>{t}</h4><ul>' + ''.join(f'<li>{x}</li>' for x in bl) + '</ul>'
+    f'<p class="sc-l"><a href="#{pid}">Ինչպես գծել →</a><a href="{pdf}">PDF</a></p></div></article>'
+    for img, w, h, t, badge, pid, pdf, alt, bl in sheet_cards)
+overview_head = f'''
+<h2 class="ptitle">Ինչ պետք է անել</h2>
+<p class="lede">Աշխատանքը՝ <b>տետրի էջեր 10–22</b> և <b>4 միլիմետրական թերթ</b> (3 × A3, 1 × A4)։ Թվերը բոլորն արդեն հաշված են. ձախում՝ ինչ գրել տետրում, աջում՝ ինչ գծել թղթի վրա։</p>
+<div class="ov2">
+  <section class="ovb ovb-t" aria-labelledby="ov-t">
+    <h3 id="ov-t">✍ Տետր <small>էջ 10–22</small></h3>
+    <p class="cp-prog" id="cp-prog" aria-live="polite">0 / {len(T.PAGES)} էջ գրված</p>
+    <div class="cp-list">{cp_groups}</div>
+    <a class="btn btn-t" href="tetr.html">Բացել տետրի էջերը</a>
+  </section>
+  <section class="ovb ovb-s" aria-labelledby="ov-s">
+    <h3 id="ov-s">📐 Թերթեր <small>միլիմետրական թուղթ</small></h3>
+    <div class="sc-list">{sc_html}</div>
+  </section>
+</div>
+<h3 class="bh">Հերթականություն</h3>
+<p class="hint">Յուրաքանչյուր քայլի կողքին գրված է՝ որտեղ է այն գրվում (✍ տետրում) կամ գծվում (📐 թերթի վրա)։</p>
+<ol class="road">{''.join(f'<li><b>{t}</b><span>{w}</span><em class="tags">{"".join(tg)}</em></li>' for t, w, tg in road)}</ol>'''
+
+JMX = max(range(9), key=lambda j: abs(C.MP[j]["M"]))
+results_sec = f'''
+<div class="block" id="results">
+  <h3 class="bh">Հիմնական արդյունքներ</h3>
+  <dl class="kv">
+    <div><dt>Երկարությունների մասշտաբ</dt><dd>{mu_l} = {MUT} մ/մմ</dd></div>
+    <div><dt>Կռունկ AB</dt><dd>{lAB} = {n(C.LAB,4)} մ <span>AB* = {n(C.AB)} մմ</span></dd></div>
+    <div><dt>Շարժաթև BC</dt><dd>{lBC} = {n(C.LBC,4)} մ <span>BC* = {n(C.BC)} մմ</span></dd></div>
+    <div><dt>Լծակի ճոճման անկյուն</dt><dd><i>ψ</i> = {n(M.PSI)}°</dd></div>
+    <div><dt>Կռունկի անկյունային արագություն</dt><dd>{w1} = {n(C.W1,3)} ռադ/վ</dd></div>
+    <div><dt>B կետի արագություն</dt><dd>{VB} = {n(C.VB,3)} մ/վ</dd></div>
+    <div><dt>Արագությունների մասշտաբ</dt><dd>{mu_V} = {MVT} (մ/վ)/մմ <span>pb = {n(C.PB)} մմ</span></dd></div>
+    <div><dt>B կետի արագացում</dt><dd>{a_('B')} = {n(C.AB_ACC,3)} մ/վ²</dd></div>
+    <div><dt>Արագացումների մասշտաբ</dt><dd>{mu_a} = {MAT} (մ/վ²)/մմ <span>πb = {n(C.PIB)} մմ</span></dd></div>
+    <div><dt>Բերված մոմենտ (մոդուլով առավելագույն)</dt><dd><i>M</i><sub>P</sub> = {n(C.MP[JMX]['M'])} Ն·մ <span>դիրք {JMX}, μ<sub>M</sub> = {n(C.MU_M,2)}</span></dd></div>
+    <div><dt>Ընթացքների անկյուններ</dt><dd>{n(M.PHI_W)}° / {n(M.PHI_I)}° <span>աշխատանքային / պարապ</span></dd></div>
+  </dl>
+  {calc_html}
+</div>'''
+
+order_items = [
+    f'Թերթը դրեք հորիզոնական։ O(0; 0) կետը ցանցի ներքևի ձախ անկյունն է։ Ներքևի աջ անկյունում (x = 277…377, y = 3…19) թողեք տեղ հիմնական մակագրության համար։',
+    f'Նշեք <b>D{ptxt(Dp)}</b>։ D-ով տարեք ուղղաձիգ կետագիծ մինչև y = 5. դա 5 սողնակի y–y ուղղորդն է։ Գծեք հենարանի նշանը։',
+    f'Նշեք <b>A{ptxt(Ap)}</b>։ Ստուգեք. A-ն D-ից {n(M.L1S,0)} մմ աջ է և {n(M.L2S)} մմ ցածր։',
+    f'Կարկինով D կենտրոնից գծեք <b>R = CD* = {n(M.CD)} մմ</b> աղեղ (C կետի հետագիծը)։',
+    f'D-ից ուղղաձիգից {n(M.BETA,0)}° աջ տարեք ճառագայթ → <b>C₀′{ptxt(C0ps)}</b>։ C₀′-ից R = CE* = {n(M.CE)} մմ աղեղով հատեք ուղղորդը → <b>E₀′{ptxt(E0ps)}</b>։',
+    f'E₀′-ից {n(M.H)} մմ վեր → <b>E₀{ptxt(E0s)}</b>։ E₀-ից R = {n(M.CE)} մմ աղեղով հատեք C-ի հետագիծը → <b>C₀{ptxt(C0s)}</b>։',
+    f'Քանոնով չափեք AC₀ ≈ {n(C.AC0)} մմ և AC₀′ ≈ {n(C.AC0P)} մմ, հաշվեք AB = {n(C.AB)} մմ, BC = {n(C.BC)} մմ (§1, կետ 3)։',
+    f'A-ից գծեք R = {n(C.AB)} մմ շրջանագիծ։ B₀-ն C₀A ուղղի շարունակության վրա է (A-ից այն կողմ), B₀′-ը՝ AC₀′ հատվածի և շրջանագծի հատումը։',
+    f'B₀-ից սկսած շրջանագիծը {ROT1_T} բաժանեք 8 հավասար մասի (45°-ական). B₁…B₇ (աղյուսակ ներքևում)։',
+    f'Յուրաքանչյուր Bᵢ-ից R = {n(C.BC)} մմ աղեղով հատեք C-ի հետագիծը → Cᵢ. Cᵢ-ից R = {n(M.CE)} մմ աղեղով հատեք ուղղորդը → Eᵢ։ Ստուգեք աղյուսակով։',
+    f'Բոլոր դիրքերը գծեք բարակ, {W}-րդ դիրքը՝ հաստ, սողնակը՝ ուղղանկյունով։ B{W}C{W}-ի մեջտեղում նշեք <b>S₂{ptxt(S2w)}</b>։ Գծեք L₁*, L₂*, H<sub>E</sub>* չափերը, գրեք {mu_l}։',
+    f'F<sub>re</sub> գրաֆիկ. S<sub>E</sub> առանցքը՝ x = {n(M.DIAG_X,0)} ուղղաձիգ E₀-ի մակարդակից (y = {n(E0s[1])}) ներքև, F<sub>re</sub> առանցքը՝ y = {n(E0s[1])} ուղղով դեպի աջ. {int(M.FMAX)} Ն = {n(wF)} մմ։ Յուրաքանչյուր Eᵢ-ից տարեք հորիզոնական կետագիծ դեպի կորը։',
+    f'Արագացումների պլան (հաստ դիրքը՝ {W}, πb = {n(C.PIB)} մմ). բևեռը՝ <b>π{ptxt(M.PA)}</b>, մակագրությունը՝ ներքևում։ Կետերը՝ աղյուսակում։',
+    f'Գրեք տառային նշումները, մասշտաբները ({mu_l}, {mu_a}, {mu_F}) և լրացրեք հիմնական մակագրությունը (Թերթ 1 / 2)։ Վերջում ընդգծեք հիմնական գծերը։',
+]
+order2_items = [
+    'Նույն ցանցը, ներքևի աջ անկյունում՝ մակագրության տեղ։ Վերևում (y ≈ 263) գրեք «Արագությունների պլաններ» և μ<sub>V</sub> = ' + MVT + ' (մ/վ)/մմ, pb = ' + n(C.PB) + ' մմ։',
+    'Թերթը բաժանեք 4 × 2 վանդակի բարակ կետագծերով. ուղղաձիգները՝ x = 96,5; 189,5; 282,5, հորիզոնականը՝ y = 137։ Վերևի շարքում՝ դիրքեր 0–3, ներքևում՝ 4–7։',
+] + [f'Դիրք {i}. բևեռը՝ <b>p{ptxt(M.PV2[i])}</b>' + (f'. pb = {n(C.PB)} մմ ⊥ AB, c-ն և e-ն համընկնում են p-ի հետ, s₂-ը pb-ի մեջտեղում' if i == 0 else
+     f'. pb = {n(C.PB)} մմ ⊥ AB → c (⊥BC և ⊥CD հատում, pc = {n(C.vchain(i)["pc"])} մմ) → e (c-ից ⊥CE և p-ից ուղղաձիգ, ce = pc) → s₂ (bc-ի մեջտեղ)') + f'։ Ներքևում գրեք «Դիրք {i}»։'
+     for i in range(8)] + [
+    'Ստուգեք բոլոր պլանների կետերը աղյուսակներով, ընդգծեք վեկտորները, լրացրեք մակագրությունը (Թերթ 2 / 2)։',
+]
+def _chk(sheet, items):
+    return ''.join(f'<li><label class="stp"><input type="checkbox" data-step="s{sheet}-{k}"><span>{t}</span></label></li>' for k, t in enumerate(items, 1))
+def order_list(sheet, items):
+    return ('<div class="stp-wrap"><p class="stp-bar"><span class="stp-count" aria-live="polite"></span><button type="button" class="stp-reset">Զրոյացնել</button></p>'
+            f'<ol class="steps">{_chk(sheet, items)}</ol></div>')
+
+layers = [('ly-grid', 'grid', 'Ցանց', True), ('ly-constr', 'constr', 'Կառուցում', True), ('ly-pos', 'pos', 'Դիրքեր 0–7', True),
+          ('ly-work', 'work', f'Դիրք {P2}', True), ('ly-lbl', 'labels xlabels', 'Նշումներ', True), ('ly-dims', 'dims', 'Չափեր', True),
+          ('ly-diag', 'diag', 'F<sub>re</sub> գրաֆիկ', True), ('ly-aplan', 'aplan', 'Արագաց. պլան', True)]
+tools = ''.join(f'<label class="chip" for="{i}"><input type="checkbox" id="{i}" data-layers="{l}"{" checked" if c else ""}> {t}</label>' for i, l, t, c in layers)
+def zoom(k): return (f'<div class="zoom" role="group" aria-label="Մեծացում" data-for="{k}">'
+                     '<button type="button" data-zoom="1" aria-pressed="true">Ամբողջը</button><button type="button" data-zoom="2" aria-pressed="false">×2</button><button type="button" data-zoom="3.2" aria-pressed="false">×3</button></div>')
+def frame(k, svg): return (f'<div class="sheet-frame" data-sheet="{k}"><div class="sheet-scroll"><div class="sheet-inner">{svg}</div></div>'
+                           '<p class="readout" aria-live="polite">Տարեք մկնիկը թերթի վրա</p></div>')
+
+VTH = '<thead><tr><th scope="col">Կետ</th><th scope="col">x</th><th scope="col">y</th><th scope="col">p-ից, մմ</th><th scope="col">V, մ/վ</th></tr></thead>'
+vplan_tbls = ''.join(f'<div><h4 class="vel">Դիրք {i}{" (հաստ դիրք)" if i == P2 else ""}</h4>'
+                     f'<div class="tscroll"><table class="coords">{VTH}<tbody>{vplan_tbl(i)}</tbody></table></div></div>' for i in range(8))
+sheet1_sec = f"""
+<h2 class="ptitle">Թերթ 1. դիրքերի պլան</h2>
+<p class="lede">Մեխանիզմի 8 դիրքերը, F<sub>re</sub> գրաֆիկը և {P2}-րդ դիրքի արագացումների պլանը։ Թերթը դրեք հորիզոնական. <b>O(0; 0)</b>-ն միլիմետրական ցանցի ներքևի ձախ անկյունն է, <i>x</i>-ը դեպի աջ, <i>y</i>-ը դեպի վեր, բոլոր կոորդինատները՝ մմ։</p>
+<div class="sheet-bar"><div class="chips" role="group" aria-label="Շերտեր">{tools}</div>{zoom(1)}</div>
+{frame(1, sheet_svg)}
+<p class="note">Թերթը տեղավորվում է 377 × 267 մմ ուղղանկյան մեջ. եթե ձեր ցանցն ավելի մեծ է, բոլոր x-երին (կամ y-երին) ավելացրեք նույն թիվը։ Էկրանին բլոկները գունավոր են (կանաչ՝ արագացումներ), թղթի վրա ամեն ինչ գծեք մատիտով. օժանդակ գծերը՝ բարակ, {P2}-րդ դիրքը և վեկտորները՝ հաստ։ Կետի վրա մկնիկը պահելիս երևում է կետի անունը։</p>
+<div class="split">
+  <div>
+    <h3 class="bh">Գծելու հերթականությունը</h3>
+    {order_list(1, order_items)}
+  </div>
+  <div>
+    <h3 class="bh">Հիմնական կետերը</h3>
+    <p class="hint">Տողի վրա մկնիկը պահելիս կետը նշվում է թերթի վրա։</p>
+    <div class="tscroll"><table class="coords">
+      <thead><tr><th scope="col">Կետ</th><th scope="col">x, մմ</th><th scope="col">y, մմ</th><th scope="col">Ինչ է</th></tr></thead>
+      <tbody>{key_tbl}</tbody>
+    </table></div>
+  </div>
+</div>
+<h3 class="bh" id="coords-pos">8 դիրքերի կետերը</h3>
+<p class="hint">Թերթի կոորդինատներ, մմ։ φ-ն կռունկի պտտման անկյունն է B₀-ից, {ROT1_T}։ E-ի բոլոր դիրքերը x = {n(Dp[0],0)} ուղղաձիգի վրա են։</p>
+<div class="tscroll"><table class="coords wide">
+  <thead>
+    <tr><th scope="col" rowspan="2">Դիրք</th><th scope="col" rowspan="2">φ</th><th scope="colgroup" colspan="2">B</th><th scope="colgroup" colspan="2">C</th><th scope="col">E</th><th scope="colgroup" colspan="2">S₂</th><th scope="col" rowspan="2">Ընթացք</th></tr>
+    <tr><th scope="col">x</th><th scope="col">y</th><th scope="col">x</th><th scope="col">y</th><th scope="col">y</th><th scope="col">x</th><th scope="col">y</th></tr>
+  </thead>
+  <tbody>{pos_tbl}</tbody>
+</table></div>
+<div class="split">
+  <div>
+    <h3 class="bh acc">Արագացումների պլան, դիրք {P2}</h3>
+    <div class="tscroll"><table class="coords"><thead><tr><th scope="col">Կետ</th><th scope="col">x</th><th scope="col">y</th><th scope="col">Հատված, մմ</th><th scope="col">a, մ/վ²</th></tr></thead><tbody>{aplan_tbl()}</tbody></table></div>
+  </div>
+  <div class="prose">
+    <h3 class="bh">Ինչպես օգտվել պլանների աղյուսակներից</h3>
+    <p>Բևեռը (p կամ π) դրեք նշված կոորդինատում, հետո մյուս կետերը։ Թղթի վրա <b>կառուցեք</b> պլանը ուղղահայացներով (<a href="#s2">§2</a>, <a href="#s3">§3</a>), իսկ կոորդինատներով միայն <b>ստուգեք</b>. եթե կետը 1 մմ-ից ավելի է շեղվում, ուղղությունը սխալ է տարված։</p>
+    <p>Հատվածի երկարությունը բազմապատկելով մասշտաբով՝ ստանում եք արագությունը կամ արագացումը. օր.՝ {VC} = pc·{mu_V} = {n(vcw["pc"])}·{MVT} = {n(vcw["VC"],3)} մ/վ։</p>
+  </div>
+</div>"""
+
+sheet2_sec = f"""
+<h2 class="ptitle">Թերթ 2. արագությունների պլաններ</h2>
+<p class="lede">8 արագությունների պլան՝ 0–7 դիրքերի համար, {mu_V} = {MVT} (մ/վ)/մմ, pb = {n(C.PB)} մմ։ Կոորդինատները նույն ձևով են. O(0; 0)՝ ցանցի ներքևի ձախ անկյունը։</p>
+<div class="sheet-bar"><span class="hint">Մեծացրեք՝ առանձին պլանը մանրամասն տեսնելու համար</span>{zoom(2)}</div>
+{frame(2, sheet2_svg)}
+<div class="split">
+  <div>
+    <h3 class="bh">Գծելու հերթականությունը</h3>
+    {order_list(2, order2_items)}
+  </div>
+  <div class="prose">
+    <h3 class="bh">Ինչպես է կառուցվում մեկ պլանը</h3>
+    <ol class="mini">
+      <li>p բևեռից տարեք <b>pb = {n(C.PB)} մմ ⊥ AB</b>՝ կռունկի պտույտի կողմը։</li>
+      <li>b-ով տարեք ուղիղ ⊥ BC, p-ով՝ ուղիղ ⊥ CD. հատումը <b>c</b>-ն է։</li>
+      <li>c-ով տարեք ուղիղ ⊥ CE, p-ով՝ ուղղաձիգ. հատումը <b>e</b>-ն է (ce = pc, քանի որ CE = CD)։</li>
+      <li><b>s₂</b>-ը bc-ի միջնակետն է։</li>
+    </ol>
+    <p class="note">Մանրամասն՝ <a href="#s2">§2</a>-ում։ Չափված հատվածները գրեք տետրի էջ 12–13-ում։</p>
+  </div>
+</div>
+<h3 class="bh vel">Պլանների կետերը</h3>
+<p class="hint">Թերթի կոորդինատներ (մմ), հատվածը p-ից և արագությունը։</p>
+<div class="grid3">{vplan_tbls}</div>"""
+
+vt_c = f'''<div class="tscroll"><table class="vt">
+<thead><tr><th></th><th scope="col">{vVC}</th><th class="op">=</th><th scope="col">{vVB}</th><th class="op">+</th><th scope="col">{vVCB}</th></tr></thead>
+<tbody><tr><th scope="row">մեծություն</th><td class="q">?</td><td></td><td class="k">{n(C.VB,3)} մ/վ</td><td></td><td class="q">?</td></tr>
+<tr><th scope="row">ուղղություն</th><td class="k">⊥ CD</td><td></td><td class="k">⊥ AB</td><td></td><td class="k">⊥ BC</td></tr></tbody></table></div>'''
+vt_e = f'''<div class="tscroll"><table class="vt">
+<thead><tr><th></th><th scope="col">{vVE}</th><th class="op">=</th><th scope="col">{vVC}</th><th class="op">+</th><th scope="col">{vVEC}</th></tr></thead>
+<tbody><tr><th scope="row">մեծություն</th><td class="q">?</td><td></td><td class="k">հայտնի (pc)</td><td></td><td class="q">?</td></tr>
+<tr><th scope="row">ուղղություն</th><td class="k">∥ y–y (ուղղաձիգ)</td><td></td><td class="k">⊥ CD</td><td></td><td class="k">⊥ CE</td></tr></tbody></table></div>'''
+at_c = f'''<div class="tscroll"><table class="vt">
+<thead><tr><th></th><th scope="col">{a_("B",vec=True)}</th><th class="op">+</th><th scope="col">{a_("CB","n",True)}</th><th class="op">+</th><th scope="col">{a_("CB","τ",True)}</th><th class="op">=</th><th scope="col">{a_("CD","n",True)}</th><th class="op">+</th><th scope="col">{a_("CD","τ",True)}</th></tr></thead>
+<tbody><tr><th scope="row">մեծություն</th><td class="k">{n(C.AB_ACC,3)}</td><td></td><td class="k">{n(acw["aCBn"],3)}</td><td></td><td class="q">?</td><td></td><td class="k">{n(acw["aCDn"],3)}</td><td></td><td class="q">?</td></tr>
+<tr><th scope="row">ուղղություն</th><td class="k">B → A</td><td></td><td class="k">C → B</td><td></td><td class="k">⊥ BC</td><td></td><td class="k">C → D</td><td></td><td class="k">⊥ CD</td></tr></tbody></table></div>'''
+at_e = f'''<div class="tscroll"><table class="vt">
+<thead><tr><th></th><th scope="col">{a_("E",vec=True)}</th><th class="op">=</th><th scope="col">{a_("C",vec=True)}</th><th class="op">+</th><th scope="col">{a_("EC","n",True)}</th><th class="op">+</th><th scope="col">{a_("EC","τ",True)}</th></tr></thead>
+<tbody><tr><th scope="row">մեծություն</th><td class="q">?</td><td></td><td class="k">հայտնի (πc)</td><td></td><td class="k">{n(acw["aECn"],3)}</td><td></td><td class="q">?</td></tr>
+<tr><th scope="row">ուղղություն</th><td class="k">∥ y–y</td><td></td><td class="k">պլանից</td><td></td><td class="k">E → C</td><td></td><td class="k">⊥ CE</td></tr></tbody></table></div>'''
+
+s1 = f'''
+<div class="secbody">
+  <h2 class="ptitle"><span class="secno">§1</span> Մեխանիզմի սինթեզ և դիրքերի պլանի կառուցում</h2>
+  <p class="tetr-link">✍ Տետրում՝ <a href="tetr.html#p10">էջ 10–11</a>։ Այստեղ՝ ինչու է այդպես հաշվվում։</p>
+  <div class="prose">
+    <h3>1) Երկարությունների մասշտաբային գործակիցը</h3>
+    <p>Գծագրում <i>L</i><sub>1</sub>-ը պատկերում ենք <i>L</i><sub>1</sub>* = {n(M.L1S,0)} մմ հատվածով. այդպես ամբողջ մեխանիզմը (D-ից մինչև E₀′ ≈ {n(DE0P,0)} մմ) տեղավորվում է A3 թերթի ձախ կեսում, իսկ աջ կեսը մնում է պլանների համար։</p>
+    {eq(f"{mu_l} = {fr(v('L','1'), v('L','1')+'*')} = {fr(si(D_['L1']), n(M.L1S,0))} = {res(MUT)} մ/մմ")}
+    <p>Իրական երկարությունները բաժանելով {mu_l}-ի՝ ստանում ենք գծագրային երկարությունները.</p>
+    {eq(f"{HE_}* = {fr(HE_, mu_l)} = {fr(si(D_['HE']), MUT)} = {res(n(M.H)+' մմ')}")}
+    {eq(f"{v('L','2')}* = {fr(v('L','2'), mu_l)} = {fr(si(D_['L2']), MUT)} = {res(n(M.L2S)+' մմ')}")}
+    {eq(f"CD* = CE* = {fr(lCD, mu_l)} = {fr(LCDT, MUT)} = {res(n(M.CD)+' մմ')}")}
+
+    <h3>2) Եզրային դիրքերի կառուցումը</h3>
+    <p>Սողնակը շարժվում է D-ով անցնող ուղղաձիգով։ Քանի որ CE = CD, DCE եռանկյունը միշտ հավասարասրուն է, և E-ն գտնվում է D-ից ուղիղ ներքև՝ DE = 2·CD·cos∠CDE, որտեղ ∠CDE-ն DC-ի շեղումն է ուղղաձիգից։ Որքան DC-ն մոտ է ուղղաձիգին, այնքան E-ն ցածր է։ Ստորին եզրային դիրքում DC-ն ուղղաձիգից շեղում ենք <b>β = {n(M.BETA,0)}°</b>, որպեսզի D, C, E կետերը երբեք մեկ ուղղի վրա չհայտնվեն։</p>
+    <ol class="alpha">
+      <li>D-ից ուղղաձիգից {n(M.BETA,0)}° աջ տանում ենք DC₀′ = {n(M.CD)} մմ → <b>C₀′</b>։</li>
+      <li>C₀′-ից R = CE* = {n(M.CE)} մմ աղեղով հատում ենք ուղղորդը → <b>E₀′</b> (ստորին եզրային դիրք). DE₀′ = 2·{n(M.CD)}·cos {n(M.BETA,0)}° = {n(DE0P)} մմ։</li>
+      <li>E₀′-ից վերև չափում ենք {HE_}* = {n(M.H)} մմ → <b>E₀</b> (վերին եզրային դիրք), DE₀ = {n(DE0)} մմ։</li>
+      <li>E₀-ից R = {n(M.CE)} մմ աղեղով հատում ենք C-ի հետագիծը (կենտրոնը D, R = {n(M.CD)} մմ) → <b>C₀</b>։ Լծակի ճոճման անկյունը ψ = ∠C₀DC₀′ = {n(M.PSI)}°։</li>
+      <li>A կետը D-ից {n(M.L1S,0)} մմ աջ է և {n(M.L2S)} մմ ցածր։</li>
+    </ol>
+  </div>
+  <figure class="fig">
+    <div class="fig-svg">{syn_svg}</div>
+    <figcaption>Եզրային դիրքերի կառուցումը։ Բոլոր թվերը թերթի կոորդինատներով են (մմ), այնպես, ինչպես պետք է լինեն ձեր թերթի վրա։</figcaption>
+  </figure>
+  <div class="prose">
+    <h3>3) Կռունկի և շարժաթևի երկարությունները</h3>
+    <p>Լծակի եզրային դիրքերում AB կռունկը և BC շարժաթևը գտնվում են մեկ ուղղի վրա։ C₀ դիրքում դրանք ծալված են. A-ն B₀-ի և C₀-ի միջև է (B₀C₀ − AB = AC₀)։ C₀′ դիրքում ձգված են. B₀′-ը A-ի և C₀′-ի միջև է (AB₀′ + B₀′C₀′ = AC₀′)։ Գծագրից չափում ենք AC₀ = {n(C.AC0)} մմ, AC₀′ = {n(C.AC0P)} մմ։</p>
+    {eq(f'<span class="sys"><span>BC − AB = {n(C.AC0)}</span><span>AB + BC = {n(C.AC0P)}</span></span>&nbsp; ⇒ &nbsp;2·BC = {n(C.AC0+C.AC0P)}')}
+    {eq(f"BC = {res(n(C.BC)+' մմ')},&nbsp;&nbsp; AB = {n(C.AC0P)} − {n(C.BC)} = {res(n(C.AB)+' մմ')}")}
+    {eq(f"{lAB} = AB·{mu_l} = {n(C.AB)}·{MUT} = {res(n(C.LAB,4)+' մ')}")}
+    {eq(f"{lBC} = BC·{mu_l} = {n(C.BC)}·{MUT} = {res(n(C.LBC,4)+' մ')}")}
+    {eq(f"{lBS2} = 0,5·{lBC} = 0,5·{n(C.LBC,4)} = {n(C.LBS2,4)} մ,&nbsp;&nbsp; BS₂* = {n(C.BS2S)} մմ")}
+
+    <h3>4) Ստուգումներ</h3>
+    <p>Կռունկը լրիվ պտույտ կանի, եթե ամենակարճ և ամենաերկար օղակների գումարը փոքր է մյուս երկուսի գումարից (Գրասհոֆի պայման).</p>
+    {eq(f"{v('l','AD')} = √({v('L','1')}² + {v('L','2')}²) = √({si(D_['L1'])}² + {si(D_['L2'])}²) = {n(M.AD,4)} մ")}
+    {eq(f"{lAB} + {v('l','AD')} = {n(grash_l,4)} մ &lt; {lBC} + {lCD} = {n(grash_r,4)} մ &nbsp;✓")}
+    <p>Փոխանցման նվազագույն անկյունը (BC-ի և CD-ի միջև) γ<sub>min</sub> ≈ {n(M.GAMMA_MIN)}°, {GAM_NOTE}</p>
+    <p>Կռունկը պտտվում է {ROT1_T}. B₀-ից B₀′ (սողնակը իջնում է, աշխատանքային ընթացք) կռունկը պտտվում է {n(M.PHI_W)}°, իսկ վերադարձին (պարապ ընթացք)՝ {n(M.PHI_I)}°։</p>
+    {eq(f"<i>K</i> = {fr(v('φ','աշխ'), v('φ','պ'))} = {fr(n(M.PHI_W), n(M.PHI_I))} = {res(n(M.PHI_W/M.PHI_I,2))}", 'միջին արագության փոփոխման գործակից')}
+
+    <h3>5) Դիրքերի պլանը</h3>
+    <p>Կռունկի շրջանագիծը B₀-ից սկսած {ROT1_T} բաժանում ենք 8 հավասար մասի՝ 0, 1, …, 7 դիրքեր։ Յուրաքանչյուր դիրքի համար կարկինով գտնում ենք.</p>
+    <ul class="dash">
+      <li><b>Cᵢ</b>. Bᵢ կենտրոնով R = BC* = {n(C.BC)} մմ աղեղի և C-ի հետագծի հատումը,</li>
+      <li><b>Eᵢ</b>. Cᵢ կենտրոնով R = CE* = {n(M.CE)} մմ աղեղի և ուղղորդի հատումը,</li>
+      <li><b>S₂ᵢ</b>. BᵢCᵢ հատվածի միջնակետը։</li>
+    </ul>
+    <p>0-րդ դիրքում սողնակը վերին եզրային դիրքում է (E₀), B₀′ դիրքում՝ ստորին (E₀′)։ Աշխատանքային դիրք ընտրում ենք {W}-րդը (ինչպես օրինակի թերթում). այն գծում ենք հաստ գծերով։</p>
+  </div>
+</div>'''
+
+s2 = f'''
+<div class="secbody">
+  <h2 class="ptitle"><span class="secno">§2</span> Արագությունների պլաններ</h2>
+  <p class="tetr-link">✍ Տետրում՝ <a href="tetr.html#p11">էջ 11–13</a>, պլանները՝ <a href="#sheet2">թերթ 2</a>-ում։</p>
+  <div class="prose">
+    <h3>1) B կետի արագությունը</h3>
+    <p>Կռունկը պտտվում է հաստատուն անկյունային արագությամբ.</p>
+    {eq(f"{w1} = {fr('π·'+v('n','1'), '30')} = {fr('3,1416·'+str(D_['n1']),'30')} = {res(n(C.W1,3)+' ռադ/վ')}")}
+    {eq(f"{VB} = {w1}·{lAB} = {n(C.W1,3)}·{n(C.LAB,4)} = {n(C.VB4,4)} ≈ {res(n(C.VB,3)+' մ/վ')}")}
+    <p>{vVB} ⊥ AB և ուղղված է {w1}-ի պտույտի կողմը ({ROT1})։ Մեծությունը բոլոր դիրքերում նույնն է։</p>
+
+    <h3>2) Մասշտաբը</h3>
+    <p>Ընտրում ենք {mu_V} = {MVT} (մ/վ)/մմ, որ pb-ն լինի ≈ 50 մմ (ինչպես օրինակում)։ B կետի արագությունը պատկերող հատվածը.</p>
+    {eq(f"pb = {fr(VB, mu_V)} = {fr(n(C.VB4,4), MVT)} = {res(n(C.PB)+' մմ')}")}
+
+    <h3>3) C կետի արագությունը</h3>
+    <p>C կետը պատկանում է և՛ 2 օղակին (շարժվում է B-ի նկատմամբ), և՛ 3 օղակին (պտտվում է D-ի շուրջը).</p>
+    {eq(f"{vVC} = {vVB} + {vVCB},&nbsp;&nbsp;&nbsp; {vVC} = {vVD} + {vVCD},&nbsp; {VB.replace('B','D')} = 0")}
+    {vt_c}
+    <p><b>Կառուցում.</b> p բևեռից տանում ենք pb ⊥ AB ({n(C.PB)} մմ), b կետով՝ BC-ին ուղղահայաց ուղիղ, p կետով (D-ի պատկերը p-ում է)՝ CD-ին ուղղահայաց ուղիղ։ Դրանց հատումը <b>c</b> կետն է։</p>
+
+    <h3>4) E կետի արագությունը</h3>
+    {eq(f"{vVE} = {vVC} + {vVEC}")}
+    {vt_e}
+    <p><b>Կառուցում.</b> c կետով տանում ենք CE-ին ուղղահայաց ուղիղ, p կետով՝ ուղղաձիգ (y–y ուղղորդին զուգահեռ)։ Հատումը <b>e</b> կետն է։</p>
+    <p class="note">Ստուգում. քանի որ CE = CD և E-ն D-ի ուղղաձիգի վրա է, պլանում միշտ ce = pc (օրինակ՝ {W}-րդ դիրքում {n(vcw['ce'])} = {n(vcw['pc'])} մմ), իսկ {w4} = {w3}՝ հակառակ ուղղությամբ։</p>
+
+    <h3>5) S₂ կետը</h3>
+    <p>BS₂ = 0,5·BC, հետևաբար <b>s₂</b>-ը bc հատվածի միջնակետն է, և {VS2} = ps₂·{mu_V}։</p>
+
+    <h3>6) Թվային արժեքները՝ դիրք {W}</h3>
+    <p>Պլանից չափում ենք հատվածները (մմ) և բազմապատկում {mu_V}-ով.</p>
+    {eq(f"{VC} = pc·{mu_V} = {n(vcw['pc'])}·{MVT} = {res(n(vcw['VC'],3)+' մ/վ')}")}
+    {eq(f"{VCB} = bc·{mu_V} = {n(vcw['bc'])}·{MVT} = {res(n(vcw['VCB'],3)+' մ/վ')}")}
+    {eq(f"{VEC} = ce·{mu_V} = {n(vcw['ce'])}·{MVT} = {res(n(vcw['VEC'],3)+' մ/վ')}")}
+    {eq(f"{VE} = pe·{mu_V} = {n(vcw['pe'])}·{MVT} = {res(n(vcw['VE'],3)+' մ/վ')}", 'ուղղված է ներքև' if vcw['VEs'] == '↓' else 'ուղղված է վերև')}
+    {eq(f"{VS2} = ps₂·{mu_V} = {n(vcw['ps2'])}·{MVT} = {res(n(vcw['VS2'],3)+' մ/վ')}")}
+
+    <h3>7) Անկյունային արագությունները</h3>
+    {eq(f"{w2} = {fr(VCB, lBC)} = {fr(n(vcw['VCB'],3), n(C.LBC,4))} = {res(n(vcw['w2'],2)+' ռադ/վ')} {vcw['w2s']}")}
+    {eq(f"{w3} = {fr(VC, lCD)} = {fr(n(vcw['VC'],3), LCDT)} = {res(n(vcw['w3'],2)+' ռադ/վ')} {vcw['w3s']}")}
+    {eq(f"{w4} = {fr(VEC, lCE)} = {fr(n(vcw['VEC'],3), LCDT)} = {res(n(vcw['w4'],2)+' ռադ/վ')} {vcw['w4s']}")}
+    <p>Ուղղությունը որոշելու համար հարաբերական արագության վեկտորը տեղափոխում ենք մեխանիզմի համապատասխան կետ. օրինակ՝ {vVCB}-ն (պլանում b-ից c) դնում ենք C կետում և նայում, թե ինչ ուղղությամբ է այն պտտում BC-ն B-ի շուրջը։ ↻՝ ժամացույցի սլաքի ուղղությամբ, ↺՝ հակառակ։</p>
+
+    <h3>8) Մեռյալ դիրքը (0)</h3>
+    <p>0-րդ դիրքում B, A, C կետերը մեկ ուղղի վրա են, ուստի ⊥AB և ⊥BC ուղղությունները համընկնում են. {VC} = {VE} = 0, c, e կետերը համընկնում են p-ի հետ, {VCB} = {VB}, s₂-ը pb-ի մեջտեղում է, {w2} = {n(C.VB,3)}/{n(C.LBC,4)} = {n(C.VB/C.LBC,2)} ռադ/վ {C.vchain(0)['w2s']}։</p>
+    <p class="note">Բոլոր 8 դիրքերի արժեքները՝ <a href="#tables">աղյուսակներում</a>։</p>
+  </div>
+</div>'''
+
+s3 = f'''
+<div class="secbody">
+  <h2 class="ptitle"><span class="secno">§3</span> Արագացումների պլան (դիրք {W})</h2>
+  <p class="tetr-link">✍ Տետրում՝ <a href="tetr.html#p14">էջ 14–16</a>, պլանը՝ <a href="#sheet1">թերթ 1</a>-ի աջ մասում։</p>
+  <div class="prose">
+    <h3>1) B կետի արագացումը</h3>
+    <p>{w1} = const, ուստի ε<sub>1</sub> = 0, և B կետն ունի միայն նորմալ արագացում՝ ուղղված B-ից A.</p>
+    {eq(f"{a_('B')} = {a_('B','n')} = {w1}²·{lAB} = {n(C.W1,3)}²·{n(C.LAB,4)} = {res(n(C.AB_ACC,3)+' մ/վ²')}")}
+    <h3>2) Մասշտաբը</h3>
+    {eq(f"{mu_a} = {MAT} (մ/վ²)/մմ,&nbsp;&nbsp; πb = {fr(a_('B'), mu_a)} = {fr(n(C.AB_ACC,3), MAT)} = {res(n(C.PIB)+' մմ')}", 'πb ∥ AB, B → A')}
+    <h3>3) C կետի արագացումը</h3>
+    {eq(f"{a_('C',vec=True)} = {a_('B',vec=True)} + {a_('CB','n',True)} + {a_('CB','τ',True)} = {a_('D',vec=True)} + {a_('CD','n',True)} + {a_('CD','τ',True)},&nbsp; {a_('D')} = 0")}
+    {at_c}
+    <p>Նորմալ բաղադրիչները հաշվում ենք արագությունների պլանի արժեքներով.</p>
+    {eq(f"{a_('CB','n')} = {fr(VCB+'²', lBC)} = {fr(n(vcw['VCB'],3)+'²', n(C.LBC,4))} = {n(acw['aCBn'],3)} մ/վ²,&nbsp;&nbsp; bn₂ = {fr(n(acw['aCBn'],3), MAT)} = {res(n(acw['bn2'])+' մմ')}", '∥ BC, C → B')}
+    {eq(f"{a_('CD','n')} = {fr(VC+'²', lCD)} = {fr(n(vcw['VC'],3)+'²', LCDT)} = {n(acw['aCDn'],3)} մ/վ²,&nbsp;&nbsp; πn₃ = {fr(n(acw['aCDn'],3), MAT)} = {res(n(acw['pin3'])+' մմ')}", '∥ CD, C → D')}
+    <p><b>Կառուցում.</b> b կետից տանում ենք bn₂ ∥ BC (C-ից B ուղղությամբ), n₂-ով՝ BC-ին ուղղահայաց ուղիղ։ π-ից տանում ենք πn₃ ∥ CD (C-ից D ուղղությամբ), n₃-ով՝ CD-ին ուղղահայաց ուղիղ։ Հատումը <b>c</b> կետն է։</p>
+    <h3>4) E կետի արագացումը</h3>
+    {eq(f"{a_('E',vec=True)} = {a_('C',vec=True)} + {a_('EC','n',True)} + {a_('EC','τ',True)}")}
+    {at_e}
+    {eq(f"{a_('EC','n')} = {fr(VEC+'²', lCE)} = {fr(n(vcw['VEC'],3)+'²', LCDT)} = {n(acw['aECn'],3)} մ/վ²,&nbsp;&nbsp; cn₄ = {fr(n(acw['aECn'],3), MAT)} = {res(n(acw['cn4'])+' մմ')}", '∥ CE, E → C')}
+    <p><b>Կառուցում.</b> c կետից տանում ենք cn₄ ∥ CE (E-ից C ուղղությամբ), n₄-ով՝ CE-ին ուղղահայաց ուղիղ, π-ով՝ ուղղաձիգ։ Հատումը <b>e</b> կետն է։ <b>s₂</b>-ը bc-ի միջնակետն է։</p>
+    <h3>5) Թվային արժեքները</h3>
+    {eq(f"{a_('CB','τ')} = n₂c·{mu_a} = {n(acw['n2c'])}·{MAT} = {res(n(acw['aCBt'],3)+' մ/վ²')}")}
+    {eq(f"{a_('CD','τ')} = n₃c·{mu_a} = {n(acw['n3c'])}·{MAT} = {res(n(acw['aCDt'],3)+' մ/վ²')}")}
+    {eq(f"{a_('C')} = πc·{mu_a} = {n(acw['pic'])}·{MAT} = {res(n(acw['aC'],3)+' մ/վ²')}")}
+    {eq(f"{a_('EC','τ')} = n₄e·{mu_a} = {n(acw['n4e'])}·{MAT} = {res(n(acw['aECt'],3)+' մ/վ²')}")}
+    {eq(f"{a_('E')} = πe·{mu_a} = {n(acw['pie'])}·{MAT} = {res(n(acw['aE'],3)+' մ/վ²')}", 'ուղղված է վեր՝ արագությանը հակառակ, սողնակը դանդաղում է' if (acw['aEs'] == '↑') == (vcw['VEs'] == '↓') else 'ուղղված է արագության կողմը, սողնակը արագանում է')}
+    {eq(f"{a_('S₂')} = πs₂·{mu_a} = {n(acw['pis2'])}·{MAT} = {res(n(acw['aS2'],3)+' մ/վ²')}")}
+    {eq(f"{e2} = {fr(a_('CB','τ'), lBC)} = {fr(n(acw['aCBt'],3), n(C.LBC,4))} = {res(n(acw['e2'],2)+' ռադ/վ²')} {acw['e2s']}")}
+    {eq(f"{e3} = {fr(a_('CD','τ'), lCD)} = {fr(n(acw['aCDt'],3), LCDT)} = {res(n(acw['e3'],2)+' ռադ/վ²')} {acw['e3s']}")}
+    {eq(f"{e4} = {fr(a_('EC','τ'), lCE)} = {fr(n(acw['aECt'],3), LCDT)} = {res(n(acw['e4'],2)+' ռադ/վ²')} {acw['e4s']}")}
+    <aside class="aside">
+      <p class="aside-h">Ինչու է bn₂-ը գրեթե զրո</p>
+      <p>{W}-րդ դիրքում bc = {n(vcw['bc'])} մմ փոքր է ({VCB} = {n(vcw['VCB'],3)} մ/վ), ուստի {a_('CB','n')} = {VCB}²/{lBC}-ն շատ փոքր է. n₂-ը գրեթե համընկնում է b-ի հետ (bn₂ = {n(acw['bn2'])} մմ)։ Սա կառուցման սխալ չէ։ Նույն պատճառով {a_('CD','n')} = {a_('EC','n')} (որովհետև {VC} = {VEC} և {lCD} = {lCE})։ Եթե դասախոսը այլ դիրք պահանջի, բոլոր դիրքերի արժեքները <a href="#tables">աղյուսակներում</a> են։</p>
+    </aside>
+  </div>
+</div>'''
+
+# ---------------- §4: reduced moment on the crank ----------------
+from mpgraph import mp_graph, PROJ_SVG
+
+
+
+KMT = n(C.KM, 7); m2 = C.MP[P2]
+def _sg(x): return ('+' if x > 0 else '') + n(x)
+def _sg2(x): return ('+' if x > 0 else '') + n(x, 2)
+mp_rows = ''.join(
+    f'<tr{WK if j == P2 else ""}><th scope="row">{j}</th><td class="n">{_sg(x["ys2"])}</td><td class="n">{n(x["pe"])}</td><td class="n">{x["a5"]}°</td>'
+    f'<td class="n">{n(x["yF"])}</td><td class="n">{n(x["Fr"],0)}</td><td class="n">{n(x["t2"],2)}</td><td class="n">{_sg2(x["t5"]) if x["t5"] else "0"}</td>'
+    f'<td class="n">{n(-x["tr"],2) if x["tr"] else "0"}</td><td class="n"><b>{n(x["M"])}</b></td><td class="n">{n(x["Mmm"])}</td></tr>' for j, x in enumerate(C.MP))
+s4 = f'''
+<div class="secbody">
+  <h2 class="ptitle"><span class="secno">§4</span> Բերված մոմենտ և նրա գրաֆիկը</h2>
+  <p class="tetr-link">✍ Տետրում՝ <a href="tetr.html#p17">էջ 17–18</a>։ Մեթոդականում՝ էջ 35–38 (1.7 կետ)։</p>
+  <div class="prose">
+    <h3>1) Ինչ է բերված մոմենտը</h3>
+    <p><b>Բերված մոմենտը</b> բերման օղակի (մեզ մոտ՝ 1 շուռտվիկի) վրա կիրառված պայմանական մոմենտ է, որի հզորությունը ցանկացած պահի հավասար է մեխանիզմի օղակների վրա ազդող արտաքին ուժերի հզորությունների հանրահաշվական գումարին։ Աշխատանքի փոխարեն վերցնում ենք <b>հզորությունը</b> (ուժ × արագություն), որովհետև արագությունների պլաններն արդեն կառուցված են։ M<sub>P</sub>-ն ուղղում ենք {w1}-ի ուղղությամբ, ուստի նրա հզորությունը M<sub>P</sub>·{w1} է։</p>
+    {eq(f"<i>M</i><sub>P</sub>·{w1} = Σ <i>F</i><sub>i</sub>·<i>V</i><sub>i</sub>·cos <i>α</i><sub>i</sub>")}
+    <p>Արտաքին ուժերը երեքն են՝ <i>G</i><sub>2</sub> = {C.G2} Ն, <i>G</i><sub>5</sub> = {C.G5} Ն և <i>F</i><sub>r</sub>։ Ամեն j դիրքի համար՝</p>
+    {eq(f"<i>M</i><sub>P j</sub> = <i>G</i><sub>2</sub>·{fr(VS2+'·cos <i>α</i><sub>2</sub>', w1)} + <i>G</i><sub>5</sub>·{fr(VE+'·cos <i>α</i><sub>5</sub>', w1)} − <i>F</i><sub>r</sub>·{fr(VE, w1)}")}
+
+    <h3>2) Սողնակի ծանրության ուժը G<sub>5</sub></h3>
+    <p>Մեզ մոտ սողնակը շարժվում է <b>ուղղաձիգ</b>, ուստի G<sub>5</sub>-ի և V<sub>E</sub>-ի անկյունը կամ 0° է, կամ 180°. աշխատանքային դիրքերում (1–4, սողնակն իջնում է) <b>α<sub>5</sub> = 0°</b>, պարապ ընթացքում (5–7) <b>α<sub>5</sub> = 180°</b>։ Մեթոդականի օրինակում այս անդամը չկա, որովհետև այնտեղ սողնակը հորիզոնական է շարժվում (cos 90° = 0). <b>մեզ մոտ այն պետք է գրել</b>։</p>
+
+    <h3>3) Օգտակար դիմադրության ուժը F<sub>r</sub></h3>
+    <p>F<sub>r</sub>-ը որոշում ենք թերթ 1-ի <a href="#fre">F<sub>re</sub> գրաֆիկից</a>. չափում ենք յուրաքանչյուր դիրքի օրդինատը y<sub>j</sub> (մմ) և բազմապատկում մասշտաբով.</p>
+    {eq(f"{mu_F} = {fr(v('F','re')+'<sup>max</sup>', v('y','max'))} = {fr(str(int(M.FMAX)), n(C.FRE_MAX_MM))} = {res(n(M.MUF,0)+' Ն/մմ')},&nbsp;&nbsp; <i>F</i><sub>r j</sub> = <i>y</i><sub>j</sub>·{mu_F}")}
+    <p>Ուժն ազդում է միայն աշխատանքային ընթացքում, բայց <b>1-ին դիրքում այն դեռ չի սկսվել</b> (S<sub>E</sub> = {n(M.POS[1]['sE']/M.H, 2)}·H<sub>E</sub>, իսկ գրաֆիկը սկսվում է ≈ 0,40·H<sub>E</sub>-ից). F<sub>r</sub> ≠ 0 միայն <b>2, 3, 4</b> դիրքերում։ Այն ուղղված է վեր (շարժմանը հակառակ), իսկ V<sub>E</sub>-ը՝ ներքև. cos 180° = −1, դրա համար բանաձևում վերջին անդամը մինուսով է։</p>
+
+    <h3>4) V<sub>S₂</sub>·cos α<sub>2</sub>՝ առանց անկյունը չափելու</h3>
+    <p>Կարելի է յուրաքանչյուր պլանում անկյունաչափով չափել α<sub>2</sub>-ը և հաշվել կոսինուսը, բայց դասախոսը խորհուրդ է տալիս ավելի պարզ ձևը. s<sub>2</sub> կետից իջեցնել ուղղահայաց p-ով անցնող ուղղաձիգին։ Ստացված ուղղանկյուն եռանկյան կից էջը հենց <b>ps<sub>2</sub>·cos α<sub>2</sub></b>-ն է՝ միլիմետրերով։</p>
+  </div>
+  <figure class="fig projfig">{PROJ_SVG}<figcaption>Եթե պրոյեկցիան p-ից <b>ներքև</b> է (անկյունը սուր է), գրում ենք «+», եթե <b>վերև</b> (անկյունը բութ է)՝ «−»։</figcaption></figure>
+  <div class="prose">
+    <p>Նույն կերպ V<sub>E</sub> = pe·{mu_V}։ Տեղադրելով V = հատված·{mu_V}՝ բոլոր անդամները ունեն նույն {fr(mu_V, w1)} արտադրիչը.</p>
+    {eq(f"{fr(mu_V, w1)} = {fr(MUVT, n(C.W1,2))} = {res(KMT+' մ/մմ')}")}
+    {eq(f"<i>M</i><sub>P j</sub> = {KMT}·[{C.G2}·(ps<sub>2</sub>·cos <i>α</i><sub>2</sub>) ± {C.G5}·pe − <i>F</i><sub>r j</sub>·pe]", '«+»՝ 1–4, «−»՝ 5–7 դիրքեր')}
+    <p><b>Օրինակ՝ դիրք {P2}.</b></p>
+    {eq(f"<i>M</i><sub>P {P2}</sub> = {KMT}·[{C.G2}·({n(m2['ys2'])}) + {C.G5}·{n(m2['pe'])} − {n(m2['Fr'],0)}·{n(m2['pe'])}] = {n(m2['t2'],2)} + {n(m2['t5'],2)} − {n(m2['tr'],2)} = {res(n(m2['M'])+' Ն·մ')}")}
+  </div>
+
+  <h3 class="bh">5) Աղյուսակը</h3>
+  <p class="hint">Հատվածները՝ թերթ 2-ի պլաններից, y<sub>j</sub>-ն՝ թերթ 1-ի F<sub>re</sub> գրաֆիկից, մմ։ Անդամները և M<sub>P</sub>-ն՝ Ն·մ։ 8-րդ դիրքը նույնն է, ինչ 0-ն։</p>
+  <div class="tscroll"><table class="coords wide">
+    <thead><tr><th scope="col">j</th><th scope="col">ps₂·cos α₂</th><th scope="col">pe</th><th scope="col">α₅</th><th scope="col">y<sub>j</sub></th><th scope="col">F<sub>r</sub>, Ն</th><th scope="col">G₂ անդամ</th><th scope="col">G₅ անդամ</th><th scope="col">F<sub>r</sub> անդամ</th><th scope="col">M<sub>P</sub></th><th scope="col">M<sub>P</sub><sup>գծ</sup>, մմ</th></tr></thead>
+    <tbody>{mp_rows}</tbody>
+  </table></div>
+  <aside class="aside">
+    <p class="aside-h">Ինքնաստուգում (դասախոսի խոսքերով)</p>
+    <p>2, 3, 4 դիրքերում M<sub>P</sub>-ն պետք է բացասական լինի, իսկ մոդուլով առավելագույնը՝ 2-րդ կամ 3-րդ դիրքում։ Մյուս դիրքերում այն փոքր է՝ դրական կամ բացասական։ Մեզ մոտ՝ առավելագույնը {JMX}-րդ դիրքում է ({n(C.MP[JMX]['M'])} Ն·մ). 4-րդ դիրքում M<sub>P</sub>-ն փոքր է ({n(C.MP[4]['M'])}), որովհետև այնտեղ սողնակը գրեթե կանգնած է (pe = {n(C.MP[4]['pe'])} մմ)։</p>
+  </aside>
+
+  <div class="prose">
+    <h3>6) Գրաֆիկի մասշտաբները և գծագրական չափերը</h3>
+    <p>|M<sub>P</sub>|<sub>max</sub>-ը գրաֆիկում ներկայացնում ենք 70–80 մմ հատվածով (վերցնում ենք {C.MP_YMAX} մմ), իսկ շուռտվիկի լրիվ պտույտը (2π)՝ 160 մմ-ով.</p>
+    {eq(f"{v('μ','M')} = {fr('|<i>M</i><sub>P</sub>|<sub>max</sub>', f'{C.MP_YMAX} մմ')} = {fr(n(C.MP_MAX), str(C.MP_YMAX))} = {res(n(C.MU_M,2)+' Ն·մ/մմ')},&nbsp;&nbsp; {v('μ','φ')} = {fr('2π', '160 մմ')} = {fr('2·3,14', '160')} = {res(n(C.MU_PHI,3)+' ռադ/մմ')}")}
+    {eq(f"(<i>M</i><sub>P</sub>)<sub>j</sub><sup>գծ</sup> = {fr('<i>M</i><sub>P j</sub>', v('μ','M'))}", 'իր նշանով՝ բացասականը ներքև')}
+  </div>
+  <figure class="fig mpfig">{mp_graph()}<figcaption>M<sub>P</sub>(φ) գրաֆիկը ձեր թվերով, 1 միավոր = 1 մմ թղթի վրա։ Թղթի վրա այն կառուցվում է A4 թերթի վրա՝ տես <a href="#sheet3">Թերթ 3</a>-ը։</figcaption></figure>
+  <aside class="aside">
+    <p class="aside-h">Ուշադրություն</p>
+    <p>F<sub>re</sub> կորը թվայնացված է առաջադրանքի թերթի նկարից (ճշտությունը մոտավոր է)։ Ձեր գծած գրաֆիկից չափված y<sub>j</sub>-ն կարող է մի փոքր տարբերվել. այդ դեպքում վերահաշվեք 2–4 տողերը։ Մեթոդականի 37-րդ էջի աղյուսակում F<sub>r</sub>·V<sub>E</sub>/ω₁ սյունակը մեկ տողով շեղված է, իսկ 7-րդ տողը սխալ է. մի արտագրեք այն։ Հաջորդ քայլը՝ աշխատանքների գրաֆիկները (1.8–1.9), <a href="#s5">§5</a>-ում է։</p>
+  </aside>
+</div>'''
+
+# ---------------- §5 (1.8–1.9): work graphs and kinetic-energy increment, A4 sheet ----------------
+from graf import a4_sheet, A4_CSS, XS as GXS, YM as GYM, YA as GYA, XP as GXP, X0 as GX0
+jm = max(range(9), key=lambda j: abs(C.MP[j]['Mmm'])); km = max(range(8), key=lambda k: abs(C.YMID[k]))
+key3_rows = [
+    ('P', (GXP, GYM), 'P', f'ինտեգրման բևեռ. φ առանցքի վրա, 0-ից {C.OP} մմ ձախ'),
+    ('0', (GXS[0], GYM + C.MP[0]['Mmm']), 'm0', 'M<sub>P</sub>(φ)-ի սկզբնակետը (j = 0)'),
+    (f'{jm}', (GXS[jm], GYM + C.MP[jm]['Mmm']), f'm{jm}', f'|M<sub>P</sub>|<sub>max</sub> = {n(C.MP_MAX)} Ն·մ ({n(C.MP[jm]["Mmm"])} մմ)'),
+    (f'{km}–{km+1} մ', (50 + 20*km, GYM + C.YMID[km]), f'k{km+1}', f'միջնակետ կորի վրա, y<sub>մ</sub> = {n(C.YMID[km])} մմ (հորիզոնականով՝ M առանցքին, ճառագայթ P-ին)'),
+    ('1′', (GXS[1], GYA + C.AR[1]), 'r1', 'A<sub>r</sub>-ի առաջին կետ. 0-ից I ճառագայթին զուգահեռ'),
+    ('8′', (GXS[8], GYA + C.AR[8]), 'r8', f'A<sub>r</sub>-ի վերջը, y<sub>8′</sub> = {n(C.AR[8])} մմ'),
+    ('8″', (GXS[8], GYA + C.AM[8]), 'a8', f'8-ից վեր {n(-C.AR[8])} մմ. A<sub>m</sub>-ի ուղիղը 0 → 8″'),
+    (f'ΔE<sub>max</sub> ({C.J_MAX})', (GXS[C.J_MAX], GYA + C.DE[C.J_MAX]), f'e{C.J_MAX}', f'ΔE-ի առավելագույնը, {n(C.DE_MAX*C.MU_A)} Ջ'),
+    (f'ΔE<sub>min</sub> ({C.J_MIN})', (GXS[C.J_MIN], GYA + C.DE[C.J_MIN]), f'e{C.J_MIN}', f'ΔE-ի նվազագույնը, {n(C.DE_MIN*C.MU_A)} Ջ'),
+    ('M<sub>m</sub>', (GX0, GYM + C.YMM), 'Mm', f'M առանցքի հատումը P-ից A<sub>m</sub>-ին զուգահեռ ճառագայթով, y<sub>Mm</sub> = {n(C.YMM)} մմ'),
+]
+key3_tbl = ''.join(f'<tr data-pt="{k}"><th scope="row">{lab}</th>{pt_sheet(p)}<td class="t">{note}</td></tr>' for lab, p, k, note in key3_rows)
+order3_items = [
+    f'Թերթը դրեք ուղղաձիգ (A4). O(0; 0)՝ ցանցի ներքևի ձախ անկյունը, ցանցը 200 × 280 մմ։ Ներքևի աջ անկյունում թողեք տեղ հիմնական մակագրության համար (Թերթ 3, A4)։',
+    f'M<sub>P</sub>-ի φ առանցքը՝ հորիզոնական y = {n(GYM,0)}, x = 0-ից 200։ M առանցքը՝ ուղղաձիգ x = {n(GX0,0)}. վերև՝ +, ներքև՝ −։ Նշեք <b>P({n(GXP,0)}; {n(GYM,0)})</b>։',
+    f'φ առանցքի վրա նշեք 0…8 կետերը x = {n(GXS[0],0)}, {n(GXS[1],0)}, … {n(GXS[8],0)} (20 մմ-ը մեկ) և տարեք ուղղահայացներ։',
+    f'Նշեք M<sub>P</sub>(φ)-ի կետերը՝ (x<sub>j</sub>; {n(GYM,0)} + y<sub>j</sub>), y<sub>j</sub> = M<sub>j</sub>/{n(C.MU_M,2)} (§4-ի աղյուսակի վերջին սյունակ). օր.՝ j = {jm}՝ ({n(GXS[jm],0)}; {n(GYM + C.MP[jm]["Mmm"])})։ Միացրեք հարթ կորով։',
+    f'Միջակայքերի միջնակետերում (x = {n(50,0)}, {n(70,0)}, … {n(190,0)}) կորից կարդացեք y<sub>մ</sub>, տարեք հորիզոնական մինչև M առանցքը և այդ կետերը միացրեք P-ի հետ՝ I…VIII ճառագայթները։',
+    f'A առանցքի φ-ն՝ y = {n(GYA,0)} ({C.A_GAP} մմ ցածր), նույն x<sub>j</sub>-երով ուղղահայացներ։ A առանցքը M առանցքի շարունակությունն է (x = {n(GX0,0)})։',
+    f'0({n(GXS[0],0)}; {n(GYA,0)})-ից տարեք I-ին զուգահեռ մինչև x = {n(GXS[1],0)}՝ <b>1′({n(GXS[1],0)}; {n(GYA + C.AR[1])})</b>. 1′-ից՝ II-ին զուգահեռ և այլն մինչև <b>8′({n(GXS[8],0)}; {n(GYA + C.AR[8])})</b>։ Միացրեք հարթ կորով՝ A<sub>r</sub>(φ)։',
+    f'8-ից վեր դրեք {n(-C.AR[8])} մմ՝ <b>8″({n(GXS[8],0)}; {n(GYA + C.AM[8])})</b>։ 0-ն 8″-ի հետ միացրեք ուղիղով՝ A<sub>m</sub>(φ)։',
+    f'ΔE-ի կետերը՝ (x<sub>j</sub>; {n(GYA,0)} + y<sub>ΔE</sub>), y<sub>ΔE</sub> = y<sub>Am</sub> + y<sub>Ar</sub> (աղյուսակը վերևում). օր.՝ j = {C.J_MIN}՝ ({n(GXS[C.J_MIN],0)}; {n(GYA + C.DE[C.J_MIN])})։ Միացրեք հարթ կորով՝ ΔE(φ)։',
+    f'P-ից տարեք ճառագայթ A<sub>m</sub>-ին զուգահեռ. M առանցքի հետ հատումը <b>({n(GX0,0)}; {n(GYM + C.YMM)})</b> է (y<sub>Mm</sub> = {n(C.YMM)} մմ)։ Դրանով տարեք հորիզոնական գիծ՝ M<sub>m</sub> = {n(C.M_M)} Ն·մ։',
+    f'Գրեք մասշտաբները ({v("μ","M")} = {n(C.MU_M,2)}, {v("μ","φ")} = {n(C.MU_PHI,3)}, {v("μ","A")} = {n(C.MU_A,2)} Ջ/մմ), կորերի անունները և լրացրեք հիմնական մակագրությունը (Թերթ 3, A4)։',
+]
+mu_A =v('μ', 'A'); OPT = str(C.OP); K20 = n(20/C.OP, 2)
+a_rows = ''.join(
+    f'<tr><th scope="row">{j}</th><td class="n">{n(C.YMID[j-1]) if j else ""}</td><td class="n">{n(C.AR[j])}</td><td class="n">{n(C.AM[j])}</td>'
+    f'<td class="n">{n(C.DE[j])}</td><td class="n"><b>{n(C.DE[j]*C.MU_A)}</b></td></tr>' for j in range(9))
+ymid_txt = ', '.join(f'{k}–{k+1}: {n(C.YMID[k])}' for k in range(8))
+sheet3_sec = f'''
+<h2 class="ptitle">Թերթ 3. գրաֆիկներ (A4)</h2>
+<p class="lede">M<sub>P</sub>(φ), A<sub>r</sub>(φ), A<sub>m</sub>(φ) և ΔE(φ) գրաֆիկները՝ գրաֆիկական ինտեգրմամբ։ Թերթը դրեք ուղղաձիգ. <b>O(0; 0)</b>-ն ցանցի ներքևի ձախ անկյունն է։ Հաշվարկը՝ <a href="#s5">§5</a>, տետրում՝ <a href="tetr.html#p19">էջ 19–20</a>։</p>
+<p class="hint">1 մմ = 1 մմ թղթի վրա։ Սև՝ M<sub>P</sub>(φ), A<sub>r</sub>(φ), A<sub>m</sub>(φ), կապույտ՝ ΔE(φ), մոխրագույն կետագծեր՝ կառուցում, կետ-գծիկ՝ M<sub>m</sub>։</p>
+<div class="sheet-bar"><span class="dl"><a href="chertej_A4_graf.pdf">PDF (A4)</a> · <a href="chertej_A4_graf.png">PNG</a> · <a href="chertej_A4_graf.svg">SVG</a></span>{zoom(3)}</div>
+<div class="a4frame">{frame(3, a4_sheet())}</div>
+<div class="split">
+  <div>
+    <h3 class="bh">Գծելու հերթականությունը</h3>
+    {order_list(3, order3_items)}
+  </div>
+  <div>
+    <h3 class="bh">Հիմնական կետերը</h3>
+    <p class="hint">Տողի վրա մկնիկը պահելիս կետը նշվում է թերթի վրա։</p>
+    <div class="tscroll"><table class="coords">
+      <thead><tr><th scope="col">Կետ</th><th scope="col">x, մմ</th><th scope="col">y, մմ</th><th scope="col">Ինչ է</th></tr></thead>
+      <tbody>{key3_tbl}</tbody>
+    </table></div>
+  </div>
+</div>'''
+s5 = f'''
+<div class="secbody">
+  <h2 class="ptitle"><span class="secno">§5</span> Աշխատանքների և կինետիկ էներգիայի աճի գրաֆիկները</h2>
+  <p class="tetr-link">✍ Տետրում՝ <a href="tetr.html#p19">էջ 19–20</a>։ Մեթոդականում՝ 1.8 և 1.9 կետեր (դասախոսի ձևով)։</p>
+  <div class="prose">
+    <h3>1) Ինչու է սա պետք</h3>
+    <p>Թափանիվը հաշվելու համար պետք է իմանալ, թե կռունկի մեկ պտույտի ընթացքում մեքենայի կինետիկ էներգիան որքանով է փոխվում։ Դրա համար M<sub>P</sub>(φ)-ն <b>ինտեգրում ենք</b>. մոմենտի գրաֆիկի տակ մնացած մակերեսը աշխատանք է։ Ստանում ենք դիմադրության ուժերի աշխատանքը A<sub>r</sub>(φ) (բացասական է)։ Շարժիչի մոմենտը M<sub>m</sub> = const է, ուստի նրա աշխատանքը A<sub>m</sub>(φ)-ն <b>ուղիղ գիծ</b> է։ Հավասարաչափ շարժման դեպքում մեկ ցիկլում A<sub>m</sub> + A<sub>r</sub> = 0, ուստի A<sub>m</sub>-ը վերջանում է A<sub>r</sub>-ի վերջի հայելային կետում։ Կինետիկ էներգիայի աճը (դասախոսը այն գրում է ΔE) յուրաքանչյուր դիրքում՝ ΔE = A<sub>m</sub> + A<sub>r</sub>։</p>
+    <h3>2) Ինչ կառուցել A4 թերթի վրա</h3>
+    <ol class="mini">
+      <li><b>M<sub>P</sub>(φ)։</b> φ առանցքը՝ թերթի վերևից 40 մմ ցածր, 8 միջակայք × 20 մմ = 160 մմ, {v('μ','φ')} = 2π/160 = {n(C.MU_PHI,3)} ռադ/մմ։ y<sub>j</sub> = M<sub>j</sub>/{v('μ','M')} ({v('μ','M')} = {n(C.MU_M,2)} Ն·մ/մմ), դրականը՝ վեր, բացասականը՝ ներքև (§4-ի վերջին սյունակ)։ Կետերը միացրեք հարթ կորով։</li>
+      <li><b>Բևեռ և ճառագայթներ։</b> φ առանցքը շարունակեք 0-ից <b>ձախ</b> OP = {C.OP} մմ՝ ստացվում է բևեռ P։ Վերցրեք 0–1, 1–2, … 7–8 միջակայքերի <b>միջնակետերը</b>, այնտեղից ուղղահայացով գնացեք մինչև կորը, կորից հորիզոնականով՝ մինչև M առանցքը, և այդ կետերը միացրեք P-ի հետ. ստացվում են I…VIII ճառագայթները։ Մեր y<sub>մ</sub> (մմ)՝ {ymid_txt}։</li>
+      <li><b>A(φ) առանցքները։</b> M<sub>P</sub>-ի φ առանցքից {C.A_GAP} մմ ցածր նույն φ-ն է (A առանցքը M առանցքի շարունակությունն է). նշեք 0…8 կետերը՝ 20 մմ-ը մեկ, և տարեք ուղղահայացներ։</li>
+      <li><b>A<sub>r</sub>(φ)։</b> 0-ից տարեք I ճառագայթին զուգահեռ մինչև 1-ի ուղղահայացը՝ կետ 1′։ 1′-ից՝ II-ին զուգահեռ մինչև 2-ի ուղղահայացը՝ 2′, և այլն մինչև 8′ (ինտեգրալը գումարում է մակերեսները, ուստի ամեն հաջորդը սկսվում է նախորդ կետից)։ Հարթ կոր 0, 1′ … 8′ միջով՝ A<sub>r</sub>(φ)։ Օրդինատները՝ y<sub>j′</sub> = y<sub>(j−1)′</sub> + y<sub>մ</sub>·20/{OPT} = y<sub>(j−1)′</sub> + y<sub>մ</sub>·{K20}։</li>
+      <li><b>A<sub>m</sub>(φ)։</b> Ցիկլում |A<sub>m</sub>| = |A<sub>r</sub>|. 8–8′ հատվածը դրեք <b>վեր</b>՝ 8-ից, ստացվում է 8″ ({n(-C.AR[8])} մմ)։ 0-ն 8″-ի հետ միացրեք ուղիղով՝ սա է A<sub>m</sub>(φ)-ն։</li>
+      <li><b>ΔE(φ)։</b> Ամեն դիրքում y<sub>ΔE</sub> = y<sub>Am</sub> + y<sub>Ar</sub> (A<sub>r</sub>-ը բացասական է), օր.՝ j = 3՝ {n(C.AM[3])} {('+ ' if C.AR[3] > 0 else '− ') + n(abs(C.AR[3]))} = {n(C.DE[3])} մմ։ Կետերը միացրեք հարթ կորով (մեր թերթում՝ նույն A(φ) առանցքների վրա)։</li>
+      <li><b>M<sub>m</sub>։</b> A<sub>m</sub>-ի ուղիղը զուգահեռ տեղափոխեք P (այսինքն՝ P-ից ճառագայթ A<sub>m</sub>-ին զուգահեռ). M առանցքի հետ հատման y<sub>Mm</sub> = {n(C.YMM)} մմ։ Հորիզոնական գիծը M<sub>m</sub> = const-ն է։</li>
+    </ol>
+    <h3>3) Մասշտաբը և իրական արժեքները</h3>
+    {eq(f"{mu_A} = {v('μ','M')}·{v('μ','φ')}·OP = {n(C.MU_M,2)}·{n(C.MU_PHI,3)}·{C.OP} = {res(n(C.MU_A,2)+' Ջ/մմ')}", 'նույնը՝ μ<sub>ΔE</sub>')}
+    <p>Իրական արժեք = չափված մմ × մասշտաբ։</p>
+    {eq(f"<i>A</i> = |<i>y</i><sub>8′</sub>|·{mu_A} = {n(-C.AR[8])}·{n(C.MU_A,2)} = {res(n(C.A_CYCLE,0)+' Ջ')},&nbsp;&nbsp; {v('M','m')} = <i>y</i><sub>Mm</sub>·{v('μ','M')} = {n(C.YMM)}·{n(C.MU_M,2)} = {res(n(C.M_M)+' Ն·մ')}")}
+    <p>Ստուգում. ցիկլում շարժիչի աշխատանքը A = M<sub>m</sub>·2π, այսինքն՝ A/2π = {n(C.A_CYCLE)}/6,28 = {n(C.A_CYCLE/(2*3.14))} Ն·մ ≈ M<sub>m</sub> ✔։ ΔE-ի առավելագույնը j = {C.J_MAX}-ում է ({n(C.DE_MAX*C.MU_A)} Ջ), նվազագույնը՝ j = {C.J_MIN}-ում ({n(C.DE_MIN*C.MU_A)} Ջ).</p>
+    {eq(f"Δ<i>E</i><sub>max</sub> − Δ<i>E</i><sub>min</sub> = {n(C.DE_MAX*C.MU_A)} − ({n(C.DE_MIN*C.MU_A)}) = {res(n(C.DE_RANGE)+' Ջ')}", 'պետք կգա թափանիվի հաշվարկում')}
+  </div>
+  <h3 class="bh">4) Աղյուսակը</h3>
+  <p class="hint">Օրդինատները՝ մմ (վեր՝ +, ներքև՝ −), ΔE-ն՝ Ջ։ y<sub>մ</sub>-ը j-րդ տողում վերաբերում է (j−1)–j միջակայքին։</p>
+  <div class="tscroll"><table class="coords wide">
+    <thead><tr><th scope="col">j</th><th scope="col">y<sub>մ</sub></th><th scope="col">y<sub>j′</sub> (A<sub>r</sub>)</th><th scope="col">y<sub>Am</sub></th><th scope="col">y<sub>ΔE</sub></th><th scope="col">ΔE, Ջ</th></tr></thead>
+    <tbody>{a_rows}</tbody>
+  </table></div>
+  <p class="tetr-link">📐 <a href="#sheet3">Գծել՝ Թերթ 3 (A4)</a>՝ թերթը, գծելու հերթականությունը և հիմնական կետերը։</p>
+  <aside class="aside">
+    <p class="aside-h">Ուշադրություն</p>
+    <p>Միջնակետերի օրդինատները y<sub>մ</sub> վերցված են հաշվարկով գծված կորից. ձեր թերթի վրա դրանք չափելիս կարող եք ստանալ ±1 մմ տարբերություն։ Այդ դեպքում y<sub>j′</sub> շղթան (4-րդ կետի բանաձևով) և դրանից հետո A<sub>m</sub>, ΔE, A, M<sub>m</sub> արժեքները վերահաշվեք։ Ստուգեք՝ M<sub>m</sub>-ը պետք է մոտ լինի A/2π-ին։</p>
+  </aside>
+</div>'''
+
+# ---------------- §6 (1.10): reduced moment of inertia I_P(φ), A3 sheet 4 ----------------
+import graf4 as G4
+from graf4 import a3_sheet4, XI as G4XI, YI0 as G4YI0, XT0 as G4XT0, YT as G4YT
+IP, JI = C.IP, C.J_IMAX
+I_P = v('I', 'P'); I_S2 = v('I', 'S₂'); m_2 = v('m', '2'); m_5 = v('m', '5'); mu_I = v('μ', 'I'); mu_phi = v('μ', 'φ')
+ip2 = IP[P2]
+MUI4 = n(C.MU_I*1e4, 3) + '·10⁻⁴'
+ip_rows = ''.join(
+    f'<tr{WK if j == JI else ""}><th scope="row">{j}</th><td class="n">{n(x["VS2"],3)}</td><td class="n">{n(x["w2"],2)}</td><td class="n">{n(x["VE"],3)}</td>'
+    f'<td class="n">{n(x["a"],5)}</td><td class="n">{n(x["b"],5)}</td><td class="n">{n(x["f"],5)}</td>'
+    f'<td class="n">{n(x["t2"],6)}</td><td class="n">{n(x["tw"],6)}</td><td class="n">{n(x["t5"],6)}</td>'
+    f'<td class="n"><b>{n(x["I"],5)}</b></td><td class="n">{n(x["Imm"])}</td></tr>' for j, x in enumerate(IP))
+s6 = f'''
+<div class="secbody">
+  <h2 class="ptitle"><span class="secno">§6</span> Բերված իներցիայի մոմենտը և նրա գրաֆիկը</h2>
+  <p class="tetr-link">✍ Տետրում՝ <a href="tetr.html#p21">էջ 21–22</a>։ Մեթոդականում՝ 1.10 կետ (աղյուսակ 4, նկ. 14)։</p>
+  <div class="prose">
+    <h3>1) Ինչու է սա պետք և ինչ է</h3>
+    <p>Թափանիվը հաշվելու համար պետք է իմանալ, թե մեքենայի կինետիկ էներգիան ինչպես է կախված կռունկի դիրքից։ Բայց մեխանիզմի օղակները շարժվում են տարբեր արագություններով։ Դրա համար ամբողջ մեխանիզմը փոխարինում ենք <b>մեկ պայմանական օղակով</b>՝ կռունկով (պտտվում է {w1}-ով), որի <b>բերված իներցիայի մոմենտ {I_P}</b>-ն ընտրված է այնպես, որ ամեն պահի <b>նրա կինետիկ էներգիան {I_P}·{w1}²/2 հավասար լինի ամբողջ մեխանիզմի կինետիկ էներգիային</b>։</p>
+    <h3>2) Բանաձևի արտածումը</h3>
+    <p>Օղակ 1-ը (կռունկը) արդեն բերման օղակն է։ Օղակ 2-ը (BC) կատարում է հարթ շարժում՝ պտույտ ω<sub>2</sub>-ով ծանրության կենտրոնի շուրջը և համընթաց շարժում S<sub>2</sub> կետի արագությամբ։ Օղակ 5-ը (սողնակ) համընթաց է շարժվում (մեր տարբերակում՝ E կետով)։</p>
+    {eq(f"{I_P}·{fr(w1+'²', '2')} = {m_2}·{fr(VS2+'²', '2')} + {I_S2}·{fr(w2+'²', '2')} + {m_5}·{fr(VE+'²', '2')}")}
+    <p>Բազմապատկում ենք 2-ով և բաժանում {w1}²-ի վրա.</p>
+    {eq(f"{I_P} = {m_2}·({fr(VS2, w1)})² + {I_S2}·({fr(w2, w1)})² + {m_5}·({fr(VE, w1)})²", 'միակ անհայտը I<sub>P</sub>-ն է')}
+    <p>Արագությունները նոր չափել պետք չէ. {VS2} = ps₂·{mu_V}, {w2} = {VCB}/{lBC}, {VE} = pe·{mu_V}՝ բոլորն արդեն կան <a href="#s2">§2</a>-ի աղյուսակներում։</p>
+    <h3>3) Զանգվածները և իներցիայի մոմենտը</h3>
+    {eq(f"{m_2} = {fr(v('G','2'), 'g')} = {fr(str(C.G2), str(C.G_ACC))} = {res(n(C.M2,2)+' կգ')},&nbsp;&nbsp; {m_5} = {fr(v('G','5'), 'g')} = {fr(str(C.G5), str(C.G_ACC))} = {res(n(C.M5,2)+' կգ')}", f'g = {C.G_ACC} մ/վ² (դասախոսի ասածով)')}
+    {eq(f"{I_S2} = {D_['IS2']}·10⁻³ = {res(n(C.IS2,2)+' կգ·մ²')},&nbsp;&nbsp; {w1} = {n(C.W1,2)} վ⁻¹")}
+    <p><b>Օրինակ՝ դիրք {P2}</b> ({VS2} = {n(ip2['VS2'],3)} մ/վ, {w2} = {n(ip2['w2'],2)} վ⁻¹, {VE} = {n(ip2['VE'],3)} մ/վ).</p>
+    {eq(f"({fr(VS2, w1)})² = ({fr(n(ip2['VS2'],3), n(C.W1,2))})² = {n(ip2['a'],5)},&nbsp;&nbsp; ({fr(w2, w1)})² = ({fr(n(ip2['w2'],2), n(C.W1,2))})² = {n(ip2['b'],5)},&nbsp;&nbsp; ({fr(VE, w1)})² = ({fr(n(ip2['VE'],3), n(C.W1,2))})² = {n(ip2['f'],5)}")}
+    {eq(f"{I_P}<sub>{P2}</sub> = {n(C.M2,2)}·{n(ip2['a'],5)} + {n(C.IS2,2)}·{n(ip2['b'],5)} + {n(C.M5,2)}·{n(ip2['f'],5)} = {n(ip2['t2'],6)} + {n(ip2['tw'],6)} + {n(ip2['t5'],6)} ≈ {res(n(ip2['I'],5)+' կգ·մ²')}")}
+  </div>
+
+  <h3 class="bh">4) Աղյուսակը (մեթոդականի աղյուսակ 4)</h3>
+  <p class="hint">Արագությունները՝ §2-ից (մ/վ և վ⁻¹), քառակուսի հարաբերությունները՝ {w1}-ի վրա բաժանած, երեք անդամները՝ կգ·մ², վերջին սյունակը՝ գծագրական չափը (մմ)։ 8-րդ դիրքը նույնն է, ինչ 0-ն։</p>
+  <div class="tscroll"><table class="coords wide">
+    <thead><tr><th scope="col">j</th><th scope="col">{VS2}</th><th scope="col">{w2}</th><th scope="col">{VE}</th><th scope="col">({fr(VS2, w1)})²</th><th scope="col">({fr(w2, w1)})²</th><th scope="col">({fr(VE, w1)})²</th><th scope="col">{m_2}·(…)</th><th scope="col">{I_S2}·(…)</th><th scope="col">{m_5}·(…)</th><th scope="col">{I_P}, կգ·մ²</th><th scope="col">{I_P}<sup>գծ</sup>, մմ</th></tr></thead>
+    <tbody>{ip_rows}</tbody>
+  </table></div>
+  <aside class="aside">
+    <p class="aside-h">Ինքնաստուգում</p>
+    <p>{I_P}-ն մեծ է այնտեղ, որտեղ արագությունները մեծ են՝ տրամաբանորեն պարապ ընթացքում (դիրքեր 5–7)։ Մեզ մոտ առավելագույնը <b>j = {JI}</b>-ում է՝ {n(C.IP_MAX,5)} կգ·մ² (պարապ ընթացք)։ Եթե ձեր չափումներից առավելագույնը մի փոքր այլ տեղ ընկնի, գրեք այն, ինչ ստացել եք։</p>
+  </aside>
+
+  <div class="prose">
+    <h3>5) Գրաֆիկի մասշտաբները</h3>
+    <p>{I_P}<sub>max</sub>-ը ներկայացնում ենք 80 մմ հատվածով, φ-ն՝ ինչպես §4-ում (8 × 20 = 160 մմ).</p>
+    {eq(f"{mu_I} = {fr(I_P+'<sub>max</sub>', '80 մմ')} = {fr(n(C.IP_MAX,5), '80')} = {res(MUI4+' կգ·մ²/մմ')},&nbsp;&nbsp; {mu_phi} = {n(C.MU_PHI,3)} ռադ/մմ")}
+    {eq(f"({I_P})<sub>j</sub><sup>գծ</sup> = {fr(I_P+'<sub>j</sub>', mu_I)}")}
+    <p><b>Գրաֆիկը շրջված է 90°-ով</b> (մեթոդականի նկ. 14). {I_P}-ի առանցքը հորիզոնական է, φ-ինը՝ ուղղաձիգ, ներքև, դիրքերի միջև՝ 20 մմ։ Կետերը միացրեք հարթ կորով։ Շրջում ենք, որովհետև հաջորդ քայլում φ-ն «արտաքսվելու» է (էներգիա–զանգված դիագրամ ΔT({I_P})). դա կավելացվի, երբ դասախոսը բացատրի։</p>
+  </div>
+  <p class="tetr-link">📐 <a href="#sheet4">Գծել՝ Թերթ 4 (A3)</a>՝ թերթը, գծելու հերթականությունը և հիմնական կետերը։</p>
+  <aside class="aside">
+    <p class="aside-h">Ուշադրություն</p>
+    <p>Մեթոդականի օրինակում g = 9,8 մ/վ², իսկ դասախոսն ասաց վերցնել <b>g = {C.G_ACC}</b>. մենք վերցրել ենք 10։ {I_S2}-ի միավորը առաջադրանքի լուսանկարում դժվար էր կարդալ. դասախոսն ասաց՝ ×10⁻³, այսինքն՝ {I_S2} = {n(C.IS2,2)} կգ·մ²։ Եթե ձեր V<sub>S₂</sub>, ω₂, V<sub>E</sub> արժեքները (էջ 12–13) մի փոքր տարբերվեն, վերահաշվեք աղյուսակը նույն բանաձևով։</p>
+  </aside>
+</div>'''
+
+sheet4_svg = a3_sheet4('sh4')
+IYS = lambda j: G4YI0 - 20*j
+key4_rows = [(f'I<sub>P</sub> {j}' + (' (max)' if j == JI else ''), (G4XI + IP[j]['Imm'], IYS(j)), f'i{j}',
+              f'I<sub>P</sub>-ի կետ, դիրք {j}. x = {n(G4XI,0)} + {n(IP[j]["Imm"])}, y = {n(G4YI0,0)} − {20*j}') for j in range(9)]
+key4_rows += [(f'ΔT {j}' + (' (max)' if j == C.J_MAX else ' (min)' if j == C.J_MIN else ''), (G4XT0 + 20*j, G4YT + C.DE[j]), f't{j}',
+               f'ΔT-ի կետ, դիրք {j}. x = {n(G4XT0,0)} + {20*j}, y = {n(G4YT,0)} + ({n(C.DE[j])})') for j in range(9)]
+key4_tbl = ''.join(f'<tr data-pt="{k}"><th scope="row">{lab}</th>{pt_sheet(p)}<td class="t">{note}</td></tr>' for lab, p, k, note in key4_rows)
+order4_items = [
+    f'Թերթը դրեք հորիզոնական (A3). O(0; 0)՝ ցանցի ներքևի ձախ անկյունը։ Ներքևի աջ անկյունում (x = 277…377, y = 3…19) թողեք տեղ հիմնական մակագրության համար։',
+    f'<b>I<sub>P</sub>(φ)</b>. I<sub>P</sub> առանցքը՝ հորիզոնական y = {n(G4YI0,0)}, x = {n(G4XI-4,0)}-ից {n(G4XI+96,0)}։ φ առանցքը՝ ուղղաձիգ x = {n(G4XI,0)}, y = {n(G4YI0,0)}-ից <b>ներքև</b> մինչև y = {n(G4YI0-170,0)}։',
+    f'φ առանցքի վրա նշեք դիրքերը 0…8՝ y = {n(IYS(0),0)}, {n(IYS(1),0)}, … {n(IYS(8),0)} (20 մմ-ը մեկ, 0-ն վերևում, ներքև՝ աճող)։',
+    f'I<sub>P</sub>-ի կետերը՝ ({n(G4XI,0)} + (I<sub>P</sub>)<sup>գծ</sup><sub>j</sub>; {n(G4YI0,0)} − 20·j) (աղյուսակը §6-ում). օր.՝ j = {JI}՝ ({n(G4XI + IP[JI]["Imm"],0)}; {n(IYS(JI),0)}), սա I<sub>P max</sub> = {C.IP_YMAX} մմ է։ Յուրաքանչյուր կետից տարեք հորիզոնական օրդինատ մինչև φ առանցքը։',
+    f'Կետերը 0-ից 8 միացրեք <b>հարթ կորով</b>։ 8-րդ դիրքը ունի նույն x-ը, ինչ 0-ն ({n(G4XI + IP[0]["Imm"])}), բայց y = {n(IYS(8),0)}։',
+    f'Չափերը. I<sub>P max</sub> = {C.IP_YMAX} մմ (հորիզոնական), φ-ն՝ 8 × 20 = 160 մմ (ուղղաձիգ)։ Գրեք {mu_I} = {MUI4} կգ·մ²/մմ և {mu_phi} = {n(C.MU_PHI,3)} ռադ/մմ։',
+    f'<b>ΔT(φ)</b> (ձախում). φ առանցքը՝ հորիզոնական y = {n(G4YT,0)}, 0-ն՝ x = {n(G4XT0,0)}-ում, 20 մմ-ը մեկ դիրքի համար (8 դիրք՝ x = {n(G4XT0+160,0)}-ում)։ ΔT առանցքը՝ ուղղաձիգ x = {n(G4XT0,0)}։',
+    f'ΔT-ի կետերը՝ ({n(G4XT0,0)} + 20·j; {n(G4YT,0)} + y<sub>ΔE</sub>), y<sub>ΔE</sub>-ը՝ թերթ 3-ի ΔE (§5 աղյուսակ, μ<sub>ΔT</sub> = μ<sub>A</sub> = {n(C.MU_A,2)} Ջ/մմ). օր.՝ j = {C.J_MIN}՝ ({n(G4XT0 + 20*C.J_MIN,0)}; {n(G4YT + C.DE[C.J_MIN])}). միացրեք հարթ կորով։',
+    f'<b>Ազատ տեղը</b>՝ I<sub>P</sub>(φ)-ի տակ (մոտ x = 250…330, y = 40…90), <b>թողեք դատարկ</b>. հաջորդ քայլում այնտեղ կկառուցվի ΔT(I<sub>P</sub>) էներգիա–զանգված դիագրամը (φ-ի արտաքսում)՝ երբ դասախոսը բացատրի։',
+    f'Գրեք կորերի անունները, մասշտաբները և լրացրեք հիմնական մակագրությունը (Թերթ 4, A3)։',
+]
+sheet4_sec = f'''
+<h2 class="ptitle">Թերթ 4. իներցիայի մոմենտ (A3)</h2>
+<p class="lede">Բերված իներցիայի մոմենտի I<sub>P</sub>(φ) գրաֆիկը (շրջված 90°-ով) և կինետիկ էներգիայի աճի ΔT(φ) գրաֆիկը։ Թերթը դրեք հորիզոնական. <b>O(0; 0)</b>-ն ցանցի ներքևի ձախ անկյունն է։ Հաշվարկը՝ <a href="#s6">§6</a>, տետրում՝ <a href="tetr.html#p21">էջ 21–22</a>։</p>
+<p class="hint">1 մմ = 1 մմ թղթի վրա։ Աջում՝ I<sub>P</sub>(φ), ձախում՝ ΔT(φ) (նույնն է, ինչ ΔE թերթ 3-ում)։ I<sub>P</sub>(φ)-ի տակ ազատ տեղ է մնացել հաջորդ քայլի՝ ΔT(I<sub>P</sub>) էներգիա–զանգված դիագրամի համար։</p>
+<div class="sheet-bar"><span class="dl"><a href="chertej_A3_4.pdf">PDF (A3)</a> · <a href="chertej_A3_4.png">PNG</a> · <a href="chertej_A3_4.svg">SVG</a></span>{zoom(4)}</div>
+{frame(4, sheet4_svg)}
+<div class="split">
+  <div>
+    <h3 class="bh">Գծելու հերթականությունը</h3>
+    {order_list(4, order4_items)}
+  </div>
+  <div>
+    <h3 class="bh">Հիմնական կետերը</h3>
+    <p class="hint">Տողի վրա մկնիկը պահելիս կետը նշվում է թերթի վրա։</p>
+    <div class="tscroll"><table class="coords">
+      <thead><tr><th scope="col">Կետ</th><th scope="col">x, մմ</th><th scope="col">y, մմ</th><th scope="col">Ինչ է</th></tr></thead>
+      <tbody>{key4_tbl}</tbody>
+    </table></div>
+  </div>
+</div>'''
+
+fre_sec = f'''
+<div class="secbody">
+  <h2 class="ptitle">Օգտակար դիմադրության ուժի գրաֆիկը</h2>
+  <div class="prose">
+    <p>F<sub>re</sub> ուժը գործում է միայն աշխատանքային ընթացքում, երբ սողնակը իջնում է (E₀ → E₀′, դիրքեր {WR}), և ուղղված է շարժմանը հակառակ (վեր)։ S<sub>E</sub> տեղափոխությունը հաշվում ենք E₀-ից։ Գրաֆիկի <b>ձևը արտագծեք առաջադրանքի թերթից</b>՝ S<sub>E</sub> առանցքը դնելով սողնակի ընթացքին զուգահեռ. այդպես Eᵢ դիրքերից հորիզոնական գծերով անմիջապես կարդում եք F<sub>re</sub>-ն։ S<sub>E</sub>-ի մասշտաբը {mu_l} է ({n(M.H)} մմ = {si(D_['HE'])} մ), ուժինը՝</p>
+    {eq(f"{mu_F} = {fr(v('F','re')+'<sup>max</sup>', n(wF)+' մմ')} = {fr(str(int(M.FMAX)), n(wF))} = {res(n(M.MUF,0)+' Ն/մմ')}")}
+  </div>
+  <div class="tscroll"><table class="coords wide">
+    <thead><tr><th scope="col">Դիրք</th><th scope="col">Ընթացք</th><th scope="col">S<sub>E</sub>*, մմ</th><th scope="col">S<sub>E</sub>, մ</th><th scope="col">S<sub>E</sub>/H<sub>E</sub></th><th scope="col">F<sub>re</sub>, Ն</th><th scope="col">F<sub>re</sub>*, մմ</th><th scope="col">կորի կետ x</th><th scope="col">y</th></tr></thead>
+    <tbody>{fre_rows}</tbody>
+  </table></div>
+  <p class="note prose">F<sub>re</sub>-ի արժեքները մոտավոր են. կորի ձևը թվայնացված է առաջադրանքի թերթի փոքր նկարից (F<sub>re</sub> = 0, երբ S<sub>E</sub> &lt; 0,4·H<sub>E</sub>, առավելագույնը՝ ≈ 0,85·H<sub>E</sub>-ում)։ Ճշգրիտ արժեքները կարդացեք ձեր գծած գրաֆիկից։ Կինեմատիկայի համար դրանք պետք չեն, բայց {WR} դիրքերի F<sub>r</sub>-ը պետք է <a href="#s4">բերված մոմենտի</a> համար (F<sub>r</sub> = y<sub>j</sub>·μ<sub>F</sub>)։</p>
+</div>'''
+
+tables_sec = f'''
+<div class="secbody">
+  <h2 class="ptitle">Բոլոր դիրքերի աղյուսակները</h2>
+  <p class="hint prose">Հատվածները՝ մմ, արագությունները՝ մ/վ, անկյունային արագությունները՝ ռադ/վ։ ↓ ↑՝ սողնակի շարժման ուղղությունը, ↻ ↺՝ պտույտի ուղղությունը։ Ընդգծված տողը աշխատանքային դիրքն է։</p>
+  <div class="tscroll"><table class="coords wide">
+    <caption>Արագություններ ({mu_V} = {MVT} (մ/վ)/մմ, pb = {n(C.PB)} մմ, {VB} = {n(C.VB,3)} մ/վ)</caption>
+    <thead><tr><th scope="col">Դիրք</th><th scope="col">φ</th><th scope="col">pc</th><th scope="col">{VC}</th><th scope="col">bc</th><th scope="col">{VCB}</th><th scope="col">ce</th><th scope="col">{VEC}</th><th scope="col">pe</th><th scope="col">{VE}</th><th scope="col">ps₂</th><th scope="col">{VS2}</th><th scope="col">{w2}</th><th scope="col">{w3}</th><th scope="col">{w4}</th></tr></thead>
+    <tbody>{vel_rows}</tbody>
+  </table></div>
+  <div class="tscroll"><table class="coords wide">
+    <caption>Արագացումներ (մ/վ²) և անկյունային արագացումներ (ռադ/վ²), {a_('B')} = {n(C.AB_ACC,3)} մ/վ² բոլոր դիրքերում</caption>
+    <thead><tr><th scope="col">Դիրք</th><th scope="col">{a_('CB','n')}</th><th scope="col">{a_('CB','τ')}</th><th scope="col">{a_('CD','n')}</th><th scope="col">{a_('CD','τ')}</th><th scope="col">{a_('C')}</th><th scope="col">{a_('EC','n')}</th><th scope="col">{a_('EC','τ')}</th><th scope="col">{a_('E')}</th><th scope="col">{a_('S₂')}</th><th scope="col">{e2}</th><th scope="col">{e3}</th><th scope="col">{e4}</th></tr></thead>
+    <tbody>{acc_rows}</tbody>
+  </table></div>
+  <details class="more">
+    <summary>Պլանների կետերը բոլոր դիրքերի համար (բևեռի նկատմամբ)</summary>
+    <p class="hint">Եթե պետք է այլ դիրքի պլան, բևեռը դրեք թերթի ազատ տեղում և յուրաքանչյուր կետի Δx; Δy (մմ) ավելացրեք բևեռի կոորդինատներին։</p>
+    <div class="tscroll"><table class="coords wide">
+      <caption>Արագությունների պլան, {mu_V} = {MVT} (մ/վ)/մմ</caption>
+      <thead><tr><th scope="col">Դիրք</th><th scope="col">b</th><th scope="col">c</th><th scope="col">e</th><th scope="col">s₂</th></tr></thead>
+      <tbody>{rel_v}</tbody>
+    </table></div>
+    <div class="tscroll"><table class="coords wide">
+      <caption>Արագացումների պլան, {mu_a} = {MAT} (մ/վ²)/մմ</caption>
+      <thead><tr><th scope="col">Դիրք</th><th scope="col">b</th><th scope="col">n₂</th><th scope="col">c</th><th scope="col">n₃</th><th scope="col">n₄</th><th scope="col">e</th><th scope="col">s₂</th></tr></thead>
+      <tbody>{rel_a}</tbody>
+    </table></div>
+  </details>
+</div>'''
+
+CSS = r'''
+:root{
+  --ground:#EDF0EF;--surface:#F9FBFA;--surface-2:#E3E8E7;--ink:#1B2225;--ink-2:#53616A;--ink-3:#77848B;
+  --rule:#CAD3D2;--rule-2:#DCE3E2;--mm:#C45F3B;--mm-ink:#9C4424;--mm-soft:#F4DFD4;
+  --pen:#21539D;--pen-soft:#DDE7F4;--verd:#206E57;--verd-soft:#D8ECE4;--hi:#F3DE5B;--hi-ink:#1B2225;
+  --f-sans:"Noto Sans Armenian",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-math:"STIX Two Text","Noto Sans Armenian","Times New Roman",serif;
+  --f-mono:"JetBrains Mono","Noto Sans Armenian",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#101416;--surface:#161B1E;--surface-2:#1D2326;--ink:#E1E6E7;--ink-2:#9BA7AD;--ink-3:#75828A;
+  --rule:#2B3438;--rule-2:#232A2E;--mm:#EA8A62;--mm-ink:#F2A688;--mm-soft:#3A261E;
+  --pen:#8FB4EA;--pen-soft:#1A2637;--verd:#74C7AB;--verd-soft:#15291F;--hi:#6E6118;--hi-ink:#F4EBC0;
+}}
+:root[data-theme="dark"]{
+  --ground:#101416;--surface:#161B1E;--surface-2:#1D2326;--ink:#E1E6E7;--ink-2:#9BA7AD;--ink-3:#75828A;
+  --rule:#2B3438;--rule-2:#232A2E;--mm:#EA8A62;--mm-ink:#F2A688;--mm-soft:#3A261E;
+  --pen:#8FB4EA;--pen-soft:#1A2637;--verd:#74C7AB;--verd-soft:#15291F;--hi:#6E6118;--hi-ink:#F4EBC0;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{background:var(--ground);color:var(--ink);font-family:var(--f-sans);font-size:16px;line-height:1.62;padding-block:28px 64px}
+.wrap{max-width:1180px;margin-inline:auto;padding-inline:20px}
+.prose{max-width:76ch}
+h1,h2,h3{font-stretch:78%;text-wrap:balance;line-height:1.2;margin:0}
+h1{font-size:clamp(1.7rem,3.4vw,2.5rem);font-weight:680;letter-spacing:.005em}
+h2{font-size:1.72rem;font-weight:660;margin-bottom:18px;display:flex;gap:.55em;align-items:baseline}
+h3{font-size:1.14rem;font-weight:650;margin:26px 0 8px}
+p{margin:0 0 12px}
+a{color:var(--pen)}
+a:focus-visible,button:focus-visible,summary:focus-visible,input:focus-visible+*{outline:2px solid var(--pen);outline-offset:2px}
+sub,sup{font-size:.72em;line-height:0}
+mark{background:var(--hi);color:var(--hi-ink);padding:0 .28em;border-radius:2px}
+.eyebrow{font-size:.78rem;letter-spacing:.09em;text-transform:uppercase;color:var(--mm-ink);font-weight:600;margin-bottom:10px}
+.lede{color:var(--ink-2);font-size:1.04rem;max-width:62ch;margin:14px 0 0}
+.note{color:var(--ink-2);font-size:.93rem}
+.hint{color:var(--ink-3);font-size:.86rem;margin-bottom:8px}
+
+/* title block */
+.stamp{display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,340px);border:1.5px solid var(--ink);background:var(--surface)}
+.stamp-main{padding:26px 28px 24px;border-right:1.5px solid var(--ink)}
+.stamp-cells{display:grid;grid-template-columns:1fr 1fr;margin:0}
+.stamp-cells>div{padding:12px 16px;border-bottom:1px solid var(--rule);display:flex;flex-direction:column;justify-content:space-between;gap:6px}
+.stamp-cells>div:nth-child(odd){border-right:1px solid var(--rule)}
+.stamp-cells>div:nth-child(n+3){border-bottom:0}
+.stamp-cells dt{font-size:.72rem;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3)}
+.stamp-cells dd{margin:0;font-family:var(--f-math);font-size:1.3rem;font-weight:600}
+.stamp-cells>div:nth-child(-n+2) dd{font-size:2.6rem;line-height:1}
+.toc{display:flex;flex-wrap:wrap;gap:4px 18px;padding:12px 2px 0;font-size:.92rem}
+.toc a{color:var(--ink-2);text-decoration:none;border-bottom:1px solid transparent}
+.toc a:hover{color:var(--ink);border-bottom-color:var(--mm)}
+
+.sec{margin-top:56px}
+.secno{font-family:var(--f-math);font-stretch:100%;color:var(--mm-ink);font-weight:600}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 40px}
+.grid2.top{align-items:start;margin-top:12px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 28px;margin-top:10px}
+@media (max-width:980px){.grid3{grid-template-columns:1fr 1fr}}
+@media (max-width:760px){.grid2,.grid3{grid-template-columns:1fr}.stamp{grid-template-columns:1fr}.stamp-main{border-right:0;border-bottom:1.5px solid var(--ink)}}
+
+.links{list-style:none;padding:0;margin:10px 0 0;display:grid;gap:6px}
+.links li{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:baseline}
+.links .ln{font-family:var(--f-math);font-weight:700;text-align:center;border:1.2px solid var(--ink-2);border-radius:50%;width:24px;height:24px;line-height:21px;font-size:.9rem}
+.conds{margin:6px 0 0;padding-left:1.3em;display:grid;gap:4px}
+.conds i,.links i{font-family:var(--f-math);font-size:1.06em}
+ol.alpha{list-style:lower-alpha;padding-left:1.4em;display:grid;gap:4px}
+ul.dash{padding-left:1.2em;display:grid;gap:3px}
+
+/* task table */
+.tscroll{overflow-x:auto;margin:14px 0 6px;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;font-variant-numeric:tabular-nums}
+caption{caption-side:top;text-align:left;font-size:.9rem;color:var(--ink-2);padding:0 0 6px;font-weight:600}
+.task{min-width:760px;width:100%;background:var(--surface);border:1.5px solid var(--ink)}
+.task th,.task td{border:1px solid var(--rule);padding:7px 10px;text-align:center;white-space:nowrap}
+.task thead th{font-family:var(--f-math);font-size:1.12rem;font-weight:500;background:var(--surface-2)}
+.task tbody th{text-align:left;font-weight:500;color:var(--ink-2);font-size:.86rem}
+.task .unit td{font-size:.82rem;color:var(--ink-2)}
+.task .val td{font-family:var(--f-mono);font-size:1.12rem;font-weight:600}
+.task .si td{font-family:var(--f-mono);font-size:.84rem;color:var(--ink-2)}
+
+/* key results */
+.calc-title{margin:30px 0 4px}
+.calc{list-style:none;padding:0;margin:10px 0 0;display:grid;gap:14px}
+.cstep{background:var(--surface);border:1px solid var(--rule);border-left:3px solid var(--mm);padding:14px 18px 10px}
+.cstep-h{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:4px 18px;margin-bottom:6px}
+.cstep-h h3{font-size:1.05rem}
+.cstep-r{margin:0;font-family:var(--f-math);font-weight:700;color:var(--mm-ink);font-size:1.08rem}
+.cstep .why{color:var(--ink-2);max-width:80ch}
+.cstep ol.sub{padding-left:1.3em;display:grid;gap:4px;max-width:80ch}
+.cstep .where{font-size:.88rem;color:var(--ink-3);margin:8px 0 0}
+.cstep .eq:last-of-type{border-bottom:0}
+.kv{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:0;margin:0;border-top:1px solid var(--rule);border-left:1px solid var(--rule)}
+.kv>div{padding:12px 14px;border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);background:var(--surface)}
+.kv dt{font-size:.8rem;color:var(--ink-3);margin-bottom:4px}
+.kv dd{margin:0;font-family:var(--f-math);font-size:1.18rem;font-weight:600}
+.kv dd span{display:block;font-family:var(--f-mono);font-size:.78rem;font-weight:400;color:var(--ink-2);margin-top:2px}
+
+/* equations */
+.eq{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:14px;padding:9px 0;border-bottom:1px dashed var(--rule)}
+.eq-b{font-family:var(--f-math);font-size:1.16rem;line-height:1.9;overflow-x:auto}
+.eq-n{font-family:var(--f-mono);font-size:.78rem;color:var(--ink-3)}
+.eq-note{display:inline-block;margin-left:.9em;font-family:var(--f-sans);font-size:.8rem;color:var(--ink-3)}
+.frac{display:inline-flex;flex-direction:column;vertical-align:middle;text-align:center;line-height:1.25;margin:0 .12em;font-size:.94em}
+.frac>span{padding:0 .2em}
+.frac>span:last-child{border-top:1px solid currentColor}
+.vec{text-decoration:overline;text-decoration-thickness:1px;text-underline-offset:0}
+.res{font-weight:700;color:var(--mm-ink)}
+.sys{display:inline-flex;flex-direction:column;vertical-align:middle;border-left:1.5px solid currentColor;padding-left:.45em;line-height:1.45}
+.vt{margin:4px 0 10px;font-family:var(--f-math);background:var(--surface)}
+.vt th,.vt td{border:1px solid var(--rule);padding:6px 12px;text-align:center;white-space:nowrap}
+.vt thead th{font-size:1.14rem;font-weight:500}
+.vt tbody th{font-family:var(--f-sans);font-size:.8rem;font-weight:500;color:var(--ink-2);text-align:left}
+.vt .op{border:0;color:var(--ink-3);padding:6px 2px}
+.vt td:empty{border-left:0;border-right:0}
+.vt .q{color:var(--mm-ink);font-weight:700}
+.vt .k{color:var(--ink)}
+
+.aside{margin:22px 0 4px;padding:14px 18px;background:var(--surface);border:1px solid var(--rule);border-left:3px solid var(--mm)}
+.aside-h{font-weight:650;margin-bottom:6px}
+.aside p:last-child{margin-bottom:0}
+
+/* sheet */
+.sheet-bar{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px 18px;margin:18px 0 10px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px 4px 8px;border:1px solid var(--rule);border-radius:3px;background:var(--surface);font-size:.84rem;cursor:pointer;user-select:none}
+.chip input{accent-color:var(--mm);margin:0}
+.chip:has(input:focus-visible){outline:2px solid var(--pen);outline-offset:2px}
+.zoom{display:inline-flex;border:1px solid var(--rule);border-radius:3px;overflow:hidden}
+.zoom button{font:inherit;font-size:.84rem;padding:5px 12px;border:0;background:var(--surface);color:var(--ink);cursor:pointer}
+.zoom button+button{border-left:1px solid var(--rule)}
+.zoom button[aria-pressed="true"]{background:var(--ink);color:var(--surface)}
+.sheet-frame{max-width:1500px;margin-inline:auto;padding-inline:20px}
+.sheet-scroll{overflow:auto;border:1px solid var(--rule);background:var(--surface-2);max-height:90vh}
+.sheet-inner{width:min(100%,calc((90vh - 2px)*404/290));margin-inline:auto}
+.sheet .pt{cursor:crosshair}
+.sheet .ring{fill:none;stroke:#E0531F;stroke-width:.55;pointer-events:none}
+.sheet-h{margin:30px 0 0;font-size:1.2rem}
+.readout{font-family:var(--f-mono);font-size:.84rem;color:var(--ink-2);margin:8px 0 0;min-height:1.6em}
+ol.steps{padding-left:1.5em;display:grid;gap:7px;margin:8px 0 0}
+.stp{display:grid;grid-template-columns:auto 1fr;gap:9px;align-items:start;cursor:pointer}
+.stp input{width:17px;height:17px;margin:4px 0 0;accent-color:var(--mm);cursor:pointer}
+.stp:has(input:checked) span{color:var(--ink-3)}
+ol.steps li:has(input:checked)::marker{color:var(--ink-3)}
+.stp-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:6px 0 4px;padding:8px 12px;background:var(--surface);border:1px solid var(--rule);border-left:3px solid var(--mm)}
+.stp-count{font-family:var(--f-mono);font-size:.86rem;color:var(--ink-2)}
+.stp-reset{font:inherit;font-size:.82rem;padding:3px 10px;border:1px solid var(--rule);border-radius:3px;background:var(--surface);color:var(--ink);cursor:pointer}
+.stp-h{margin:16px 0 0;font-size:1rem;color:var(--mm-ink)}
+.stp-next{outline:2px solid var(--mm);outline-offset:4px;border-radius:2px}
+ol.steps li::marker{font-family:var(--f-mono);color:var(--mm-ink);font-size:.86em}
+ol.steps b{font-family:var(--f-mono);font-weight:600;font-size:.92em;white-space:nowrap}
+
+.coords{background:var(--surface);font-size:.86rem;width:100%}
+.coords.wide{min-width:760px}
+.coords th,.coords td{border-bottom:1px solid var(--rule-2);padding:5px 9px;text-align:left;white-space:nowrap}
+.coords thead th{font-size:.76rem;color:var(--ink-3);font-weight:600;border-bottom:1.5px solid var(--rule);background:var(--surface-2)}
+.coords tbody th{font-family:var(--f-math);font-size:1rem;font-weight:600}
+.coords td.n{font-family:var(--f-mono);text-align:right}
+.coords td.t{color:var(--ink-2);white-space:normal;min-width:12ch}
+.coords tbody tr[data-pt]:hover{background:var(--mm-soft)}
+.coords tr.wkrow{background:var(--surface-2)}
+.coords tr.wkrow th{color:var(--mm-ink)}
+h3.vel{color:var(--pen)}h3.acc{color:var(--verd)}
+
+.fig{margin:18px 0 8px}
+.fig-svg{border:1px solid var(--rule);background:#FFFDF8;overflow:hidden}
+.fig figcaption{font-size:.86rem;color:var(--ink-3);margin-top:6px}
+details.more{margin-top:20px;border-top:1px solid var(--rule);padding-top:10px}
+details.more summary{cursor:pointer;font-weight:600}
+'''
+
+JS = r'''
+(() => {
+  const NS = 'http://www.w3.org/2000/svg';
+  const sh1 = document.getElementById('sh');
+  if (sh1) document.querySelectorAll('input[data-layers]').forEach(inp => {
+    const apply = () => inp.dataset.layers.split(' ').forEach(name =>
+      sh1.querySelectorAll('[data-layer="' + name + '"]').forEach(g => g.toggleAttribute('hidden', !inp.checked)));
+    inp.addEventListener('change', apply); apply();
+  });
+  const fmt = v => v.toFixed(1).replace('.', ',').replace('-', '−');
+  document.querySelectorAll('.sheet-frame').forEach(frame => {
+    const svg = frame.querySelector('svg.sheet'); if (!svg) return;
+    const scroller = frame.querySelector('.sheet-scroll'), inner = frame.querySelector('.sheet-inner'), ro = frame.querySelector('.readout');
+    const zoom = document.querySelector('.zoom[data-for="' + frame.dataset.sheet + '"]');
+    if (zoom) zoom.querySelectorAll('button[data-zoom]').forEach(btn => btn.addEventListener('click', () => {
+      const cx = (scroller.scrollLeft + scroller.clientWidth / 2) / scroller.scrollWidth;
+      const cy = (scroller.scrollTop + scroller.clientHeight / 2) / scroller.scrollHeight;
+      const z = parseFloat(btn.dataset.zoom);
+      inner.style.width = z === 1 ? '' : (100 * z) + '%';
+      zoom.querySelectorAll('button[data-zoom]').forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
+      scroller.scrollLeft = cx * scroller.scrollWidth - scroller.clientWidth / 2;
+      scroller.scrollTop = cy * scroller.scrollHeight - scroller.clientHeight / 2;
+    }));
+    const pt = svg.createSVGPoint();
+    svg.addEventListener('pointermove', e => {
+      const t = e.target.closest ? e.target.closest('.pt') : null;
+      if (t) { ro.textContent = t.dataset.k + ':  x = ' + t.dataset.x + ',  y = ' + t.dataset.y + ' մմ'; return; }
+      const m = svg.getScreenCTM(); if (!m) return;
+      pt.x = e.clientX; pt.y = e.clientY;
+      const p = pt.matrixTransform(m.inverse());
+      const gw = +svg.dataset.gw || 380, gh = +svg.dataset.gh || 270, x = p.x, y = gh - p.y;
+      ro.textContent = (x >= 0 && x <= gw && y >= 0 && y <= gh) ? 'x = ' + fmt(x) + ',  y = ' + fmt(y) + ' մմ' : 'Կուրսորը ցանցից դուրս է';
+    });
+  });
+  let rings = [];
+  const clear = () => { rings.forEach(r => r.remove()); rings = []; };
+  document.querySelectorAll('tr[data-pt]').forEach(row => {
+    row.addEventListener('pointerenter', () => {
+      clear();
+      row.dataset.pt.split(' ').forEach(id => {
+        const el = document.getElementById('sh-pt-' + id) || document.getElementById('sh2-pt-' + id) || document.getElementById('sh3-pt-' + id) || document.getElementById('sh4-pt-' + id); if (!el) return;
+        const c = document.createElementNS(NS, 'circle');
+        c.setAttribute('class', 'ring'); c.setAttribute('r', '2.8');
+        c.setAttribute('cx', el.getAttribute('cx')); c.setAttribute('cy', el.getAttribute('cy'));
+        el.ownerSVGElement.appendChild(c); rings.push(c);
+      });
+    });
+    row.addEventListener('pointerleave', clear);
+  });
+  (() => {
+    const KEY = 'tmm-variant16-steps';
+    let done = {};
+    try { done = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { done = {}; }
+    const save = () => { try { localStorage.setItem(KEY, JSON.stringify(done)); } catch (e) {} };
+    document.querySelectorAll('.stp-wrap').forEach(wrap => {
+      const boxes = [...wrap.querySelectorAll('input[data-step]')];
+      const count = wrap.querySelector('.stp-count'), reset = wrap.querySelector('.stp-reset');
+      const paint = () => {
+        const k = boxes.filter(b => b.checked).length, next = boxes.find(b => !b.checked);
+        boxes.forEach(b => b.closest('li').classList.toggle('stp-next', b === next));
+        if (count) count.textContent = k + ' / ' + boxes.length + ' քայլ արված' + (next ? ' · հաջորդը՝ քայլ ' + next.dataset.step.split('-')[1] : ' · թերթը պատրաստ է');
+      };
+      boxes.forEach(b => {
+        b.checked = !!done[b.dataset.step];
+        b.addEventListener('change', () => { if (b.checked) done[b.dataset.step] = 1; else delete done[b.dataset.step]; save(); paint(); });
+      });
+      if (reset) reset.addEventListener('click', () => { boxes.forEach(b => { b.checked = false; delete done[b.dataset.step]; }); save(); paint(); });
+      paint();
+    });
+  })();
+})();
+'''
+
+# ---------------- page frame: layout, panels, theme ----------------
+FRAME_CSS = r'''
+body{padding:0;margin:0}
+:root{--toph:56px}
+.top{position:sticky;top:0;z-index:30;height:var(--toph);display:flex;align-items:center;gap:14px;padding:0 20px;background:var(--surface);border-bottom:1px solid var(--rule)}
+.back{display:grid;place-items:center;width:34px;height:34px;border:1px solid var(--rule);border-radius:8px;color:var(--ink);text-decoration:none;flex:none}
+.back:hover{border-color:var(--ink-2)}
+.top-t{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.25}
+.top-t b{font-size:1rem;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.top-t span{font-size:.8rem;color:var(--ink-3)}
+.top-tetr{flex:none;padding:7px 14px;border-radius:8px;background:var(--verd);color:var(--surface);text-decoration:none;font-size:.9rem;font-weight:600}
+.top-tetr:hover{filter:brightness(1.1)}
+.theme-btn{flex:none;width:36px;height:36px;border:1px solid var(--rule);border-radius:8px;background:var(--surface);color:var(--ink);font-size:1.05rem;cursor:pointer}
+.shell{display:grid;grid-template-columns:248px minmax(0,1fr);max-width:1480px;margin:0 auto}
+.side{position:sticky;top:var(--toph);align-self:start;max-height:calc(100vh - var(--toph));overflow:auto;padding:20px 14px 32px 18px;border-right:1px solid var(--rule)}
+.side h4{font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin:18px 0 6px 10px;font-weight:600}
+.side .grp:first-child h4{margin-top:0}
+.side a{display:block;padding:7px 10px;border-radius:7px;color:var(--ink-2);text-decoration:none;font-size:.93rem;line-height:1.35}
+.side a:hover{background:var(--surface-2);color:var(--ink)}
+.side a[aria-current="true"]{background:var(--ink);color:var(--surface);font-weight:600}
+.side a.ext{color:var(--verd);font-weight:600}
+main{padding:30px 40px 90px;min-width:0}
+.panel{max-width:1120px;outline:none;scroll-margin-top:100vh}
+.panel [id]{scroll-margin-top:calc(var(--toph) + 60px)}
+.js .panel:not(.on){display:none}
+.kicker{font-size:.74rem;letter-spacing:.09em;text-transform:uppercase;color:var(--mm-ink);font-weight:600;margin:0 0 6px}
+h2.ptitle{font-size:clamp(1.5rem,2.6vw,2.1rem);margin:0 0 12px;font-weight:680}
+.lede{color:var(--ink-2);font-size:1.03rem;max-width:72ch;margin:0 0 18px}
+h3.bh{font-size:1.2rem;margin:38px 0 10px;padding-top:4px}
+h3.bh.acc{color:var(--verd)}h3.bh.vel,h4.vel{color:var(--pen)}
+h4.vel{font-size:1rem;margin:14px 0 2px}
+.block{margin-top:6px}
+.tetr-link{display:inline-block;margin:0 0 16px;padding:7px 12px;border-radius:8px;background:var(--verd-soft);color:var(--ink);font-size:.93rem}
+.tetr-link a{color:var(--verd);font-weight:600}
+.ov2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin:6px 0 8px;align-items:start}
+.ovb{border:1px solid var(--rule);border-radius:12px;background:var(--surface);padding:16px 18px 18px;min-width:0}
+.ovb h3{margin:0 0 6px;font-size:1.2rem}.ovb h3 small{font-size:.8rem;font-weight:500;color:var(--ink-3);margin-left:6px}
+.ovb-t{border-top:4px solid var(--verd)}.ovb-s{border-top:4px solid var(--pen)}
+.cp-prog{margin:0 0 10px;font-family:var(--f-mono);font-size:.86rem;color:var(--ink-2)}
+.cp-g h4{margin:12px 0 4px;font-size:.82rem;color:var(--ink-2);font-weight:500}.cp-g h4 b{color:var(--verd);font-size:.95rem}
+.cp-row{display:grid;grid-template-columns:58px minmax(0,1fr) 22px;gap:8px;align-items:center;padding:6px 8px;border-radius:7px;color:var(--ink);text-decoration:none;font-size:.92rem;line-height:1.35}
+.cp-row:hover{background:var(--surface-2)}
+.cp-n{font-weight:650;white-space:nowrap}.cp-t{color:var(--ink-2)}
+.cp-ck{width:18px;height:18px;border:1.5px solid var(--rule);border-radius:50%;justify-self:end}
+.cp-row.done .cp-ck{background:var(--verd);border-color:var(--verd)}
+.cp-row.done .cp-ck::after{content:"✓";display:block;color:var(--surface);font-size:.75rem;line-height:15px;text-align:center;font-weight:700}
+.btn{display:inline-block;margin-top:14px;padding:9px 16px;border-radius:8px;font-weight:600;font-size:.92rem;text-decoration:none}
+.btn-t{background:var(--verd);color:var(--surface)}.btn-t:hover{filter:brightness(1.1)}
+.sc-list{display:grid;gap:12px;margin-top:10px}
+.sc{display:grid;grid-template-columns:132px minmax(0,1fr);gap:14px;padding:10px;border:1px solid var(--rule-2);border-radius:10px;background:var(--ground)}
+.sc-img{display:grid;place-items:center;height:104px;background:var(--surface-2);border-radius:6px;overflow:hidden}
+.sc-img img{display:block;max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain}
+.sc-b{min-width:0}.sc-b h4{margin:4px 0 4px;font-size:1rem}
+.badge{display:inline-block;padding:2px 9px;border-radius:99px;background:var(--pen-soft);color:var(--pen);font-size:.78rem;font-weight:650}
+.sc-b ul{margin:0 0 6px;padding-left:1.1em;color:var(--ink-2);font-size:.88rem}
+.sc-l{display:flex;gap:14px;flex-wrap:wrap;margin:0;font-size:.88rem;font-weight:600}
+.road .tags{grid-column:2;display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;font-style:normal}
+.tg{display:inline-block;padding:2px 10px;border-radius:99px;font-size:.8rem;font-weight:600;text-decoration:none}
+.tg-t{background:var(--verd-soft);color:var(--verd)}.tg-s{background:var(--pen-soft);color:var(--pen)}
+@media (max-width:820px){.ov2{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:520px){.sc{grid-template-columns:minmax(0,1fr)}.sc-img{height:160px}.ovb{padding:14px 12px 16px}.cp-row{grid-template-columns:52px minmax(0,1fr) 22px}}
+.road{list-style:none;counter-reset:r;padding:0;margin:0;display:grid;gap:0;max-width:820px}
+.road li{counter-increment:r;display:grid;grid-template-columns:34px 1fr;column-gap:12px;padding:10px 0;border-bottom:1px solid var(--rule-2)}
+.road li::before{content:counter(r);grid-row:span 3;width:28px;height:28px;border-radius:50%;background:var(--ink);color:var(--surface);display:grid;place-items:center;font-size:.85rem;font-weight:700}
+.road b{font-weight:600}.road span{color:var(--ink-2);font-size:.9rem}
+.split{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 36px;align-items:start}
+.sheet-frame{max-width:none;padding-inline:0}
+.sheet-bar{margin:6px 0 10px}
+ol.mini{padding-left:1.3em;display:grid;gap:5px;margin:0 0 10px}
+.calc-more{margin-top:22px;border:1px solid var(--rule);border-radius:10px;padding:12px 16px;background:var(--surface)}
+.calc-more[open]{padding-bottom:16px}
+.calc-more summary{font-weight:650}
+.projfig svg{max-width:460px}.mpfig svg{max-width:640px}
+.fig svg.projg,.fig svg.mpg{display:block;width:100%;height:auto;font-family:var(--f-math);background:var(--surface)}
+.mpg .ax,.projg .ax{stroke:var(--ink-2);stroke-width:.35;fill:none}.mpg .ar{fill:var(--ink-2)}
+.mpg .gr{stroke:var(--rule);stroke-width:.3;stroke-dasharray:1.2 1}.mpg .cv{fill:none;stroke:var(--pen);stroke-width:.8}
+.mpg .dt,.projg .dt{fill:var(--pen)}.mpg .tk{font-size:4px;text-anchor:middle;fill:var(--ink-2)}
+.mpg .lb,.projg .lb{font-size:5px;fill:var(--ink);font-style:italic}.mpg .sb{font-size:3.4px}
+.mpg .dm{stroke:var(--mm);stroke-width:.3}.mpg .dmt{font-size:3.8px;fill:var(--mm-ink)}.mpg .dmt.c{text-anchor:middle}
+.projg .cap{font-size:5px;fill:var(--ink-2)}.projg .vc{stroke:var(--pen);stroke-width:1}.projg .pj{stroke:var(--ink-3);stroke-width:.4;stroke-dasharray:1.5 1}
+.projg .hl{stroke:var(--mm);stroke-width:1.6}.projg .hlt{font-size:4.2px;fill:var(--mm-ink)}.projg .g2{stroke:var(--verd);stroke-width:.9}.projg .ar2{fill:var(--verd)}
+.pager{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:56px;padding-top:20px;border-top:1px solid var(--rule)}
+.pager a{display:flex;flex-direction:column;gap:2px;padding:12px 16px;border:1px solid var(--rule);border-radius:10px;background:var(--surface);color:var(--ink);text-decoration:none;font-weight:600}
+.pager a:hover{border-color:var(--ink-2)}
+.pager a span{font-size:.75rem;font-weight:500;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em}
+.pager .pg-next{text-align:right;grid-column:2}
+.secbody .prose{max-width:78ch}
+@media (max-width:1000px){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  .side{min-width:0}
+  .side{top:var(--toph);z-index:25;max-height:none;display:flex;gap:4px;overflow-x:auto;padding:8px 12px;border-right:0;border-bottom:1px solid var(--rule);background:var(--ground);scrollbar-width:none}
+  .side::-webkit-scrollbar{display:none}
+  .side .grp{display:contents}.side h4{display:none}
+  .side a{white-space:nowrap;flex:none;padding:6px 11px;font-size:.88rem}
+  main{padding:22px 16px 70px}
+  .split{grid-template-columns:1fr}
+}
+@media (max-width:560px){.top{padding:0 12px;gap:10px}.top-tetr{padding:7px 10px;font-size:.82rem}.top-t b{font-size:.9rem}}
+@media print{.top,.side,.pager,.sheet-bar{display:none}.js .panel{display:block!important}.shell{display:block}main{padding:0}}
+'''
+
+FRAME_JS = r'''
+(() => {
+  const ROOT = document.documentElement, TKEY = 'tmm-theme';
+  const isDark = () => (ROOT.getAttribute('data-theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark';
+  const label = () => document.querySelectorAll('[data-theme-toggle]').forEach(b => { b.textContent = isDark() ? '☀' : '☾'; b.title = isDark() ? 'Լուսավոր ռեժիմ' : 'Մութ ռեժիմ'; });
+  document.addEventListener('click', e => {
+    if (!e.target.closest('[data-theme-toggle]')) return;
+    const t = isDark() ? 'light' : 'dark'; ROOT.setAttribute('data-theme', t);
+    try { localStorage.setItem(TKEY, t); } catch (err) {}
+    label();
+  });
+  label();
+
+  const panels = [...document.querySelectorAll('.panel')];
+  if (!panels.length) return;
+  try {
+    const done = JSON.parse(localStorage.getItem('tmm-variant16-tetr') || '{}') || {};
+    const rows = [...document.querySelectorAll('.cp-row')];
+    rows.forEach(r => r.classList.toggle('done', !!done[r.dataset.pg]));
+    const pr = document.getElementById('cp-prog');
+    if (pr) pr.textContent = rows.filter(r => r.classList.contains('done')).length + ' / ' + rows.length + ' էջ գրված';
+  } catch (e) {}
+  const alias = { results: 'data', sheet: 'sheet1', next: 'tables' };
+  const show = first => {
+    const h = decodeURIComponent(location.hash.slice(1));
+    if (h === 'copybook') { location.replace('tetr.html'); return; }
+    let target = h ? document.getElementById(h) : null;
+    let p = target && target.closest('.panel');
+    if (!p) { p = document.getElementById(alias[h] || 'overview'); target = null; }
+    panels.forEach(x => x.classList.toggle('on', x === p));
+    document.querySelectorAll('[data-nav]').forEach(a => a.setAttribute('aria-current', String(a.dataset.nav === p.id)));
+    const cur = document.querySelector('.side a[aria-current="true"]');
+    const side = document.querySelector('.side');
+    if (cur && side && innerWidth <= 1000) side.scrollLeft = cur.offsetLeft - (side.clientWidth - cur.offsetWidth) / 2;
+    if (target && target !== p) target.scrollIntoView();
+    else window.scrollTo(0, 0);
+    document.title = p.querySelector('h2').textContent.trim() + ' · ՄՄՏ, տարբերակ 16';
+  };
+  addEventListener('hashchange', () => show(false));
+  show(true);
+})();
+'''
+
+FONTS = '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400..600&family=Noto+Sans+Armenian:wdth,wght@62.5..100,400..700&family=STIX+Two+Text:ital,wght@0,400..700;1,400..700&display=swap">'
+
+html = (f'<title>Առաջադրանք {M.TASK}, տարբերակ {VAR}</title>\n<meta name="description" content="ՄՄՏ, առաջադրանք {M.TASK}, տարբերակ {VAR}. սինթեզ, արագությունների և արագացումների պլաններ, A3 թերթի գծագիր՝ կոորդինատներով">\n'
+        + FONTS + '\n<style>' + CSS + FRAME_CSS + SH.SHEET_CSS + A4_CSS + (G4.A3_4_CSS if G4.A3_4_CSS != A4_CSS else '') + '.a4frame{max-width:760px;margin-inline:auto}.a4frame .sheet-frame{padding-inline:0}.dl{font-size:.9rem}</style>\n'
+        + header + '<div class="shell">' + side_nav() + '<main id="main">'
+        + panel('overview', overview_head) + panel('data', '<h2 class="ptitle">Տվյալներ և արդյունքներ</h2>' + results_sec + data_sec)
+        + panel('s1', s1) + panel('s2', s2) + panel('s3', s3) + panel('s4', s4) + panel('s5', s5) + panel('s6', s6)
+        + panel('sheet1', sheet1_sec) + panel('sheet2', sheet2_sec) + panel('sheet3', sheet3_sec) + panel('sheet4', sheet4_sec) + panel('fre', fre_sec)
+        + panel('tables', tables_sec) + '</main></div>'
+        + '<script>' + JS + FRAME_JS + '</script>\n')
+import os
+HERE = os.path.dirname(os.path.abspath(__file__))
+open(os.path.join(HERE, f'variant{VAR}.html'), 'w').write(html)          # body for the Artifact publish
+_t = html.index('</title>') + len('</title>'); _h, _rest = html[:_t], html[_t:]; _i = _rest.index('<header')
+open(os.path.join(HERE, '..', f'TMM_Variant{VAR}.html'), 'w').write(
+    '<!doctype html>\n<html lang="hy">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+    '<style>body{margin:0;font:14px/1.5 system-ui,sans-serif;background:#fafafa}img{max-width:100%}[hidden]{display:none!important}</style>\n'
+    + _h + _rest[:_i] + '\n</head>\n<body>\n' + _rest[_i:] + '\n</body>\n</html>\n')
+print('written', len(html), 'bytes; equations:', Eq.k)
