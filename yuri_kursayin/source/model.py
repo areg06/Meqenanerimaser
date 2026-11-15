@@ -5,7 +5,7 @@ import math
 # ---------------- task data (variant 16) ----------------
 TASK = 1
 VARIANT = 16
-DATA = dict(HE=85, L1=220, L2=200, lCD=190, n1=80, G2=180, G5=480, IS2=80, Fmax=77)
+DATA = dict(HE=85, L1=220, L2=200, lCD=190, n1=80, G2=200, G5=520, IS2=120, Fmax=80)
 HE = DATA['HE']/1000; L1 = DATA['L1']/1000; L2 = DATA['L2']/1000
 lCD = DATA['lCD']/1000; lCE = lCD; n1 = DATA['n1']
 FMAX = DATA['Fmax']*100.0

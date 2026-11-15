@@ -6,7 +6,7 @@ keep it Armenian when editing. Make the change, rebuild, and commit the regenera
 
 Mechanism (differs from Variant 1): crank AB (counter-clockwise), coupler BC, rocker CD, rod CE with **CE = CD**,
 slider E on the vertical guide through D (so E = (0, 2·y_C), DCE is isosceles). Task «Առաջադրանք 1», variant 16.
-Data: HE=85, L1=220, L2=200, lCD=190, n1=80, G2=180, G5=480, IS2=80, Fmax=77. Thick (acceleration) position = 3,
+Data: HE=85, L1=220, L2=200, lCD=190, n1=80, G2=200, G5=520, IS2=120, Fmax=80. Thick (acceleration) position = 3,
 working stroke = slider moving down (`model.working(i)`: positions 1–4). F_re shape = `FRE_PTS` in model.py.
 Scales: μ_l = 0,002 (L1S = 110 mm), μ_V = 0,008, μ_a = 0,05, μ_F = 200.
 φ_w ≈ 205°, γ_min ≈ 20,7° (low, comes from the task data; page text says so). Sheet 3 uses `calc.A_GAP = 130` so A_r stays above the title block.

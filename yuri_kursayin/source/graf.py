@@ -66,7 +66,7 @@ def a4_sheet(prefix='sh3'):
     svg.layer('mp')
     svg.text((120, 274), 'Բերված մոմենտի գրաֆիկը', 'lbl ttl')
     svg.text((120, 269), f'μ{SUB("M")} = {n(C.MU_M, 2)} Ն·մ/մմ,   μ</tspan>{SUB("φ")} = {n(C.MU_PHI, 3)} ռադ/մմ</tspan>', 'lbl sm')
-    _axes(svg, YM, 262, YM-86, f'M{SUB("P")}, Ն·մ</tspan>')
+    _axes(svg, YM, 266 if abs(YM + C.YMM - 261) < 3 else 262, YM-86, f'M{SUB("P")}, Ն·մ</tspan>')   # keep the axis label off the M_m line
     for j, x in enumerate(XS):
         svg.line((x, YM-.8), (x, YM+.8), 'ln3')
         up = C.MP[j]['Mmm'] < 1.5
