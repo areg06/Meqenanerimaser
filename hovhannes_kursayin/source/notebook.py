@@ -1,0 +1,332 @@
+"""The notebook (copybook) pages 10–22, filled in for variant 13, laid out like the teacher's template."""
+import math
+import model as M
+import calc as C
+from calc import n, r
+
+D_ = M.DATA
+P2 = M.PA_POS                      # thick (acceleration) position, 3 for variant 13
+vc = {i: C.vchain(i) for i in range(8)}
+v2 = vc[P2]; a2 = C.achain(P2)
+
+# ---------------- notation ----------------
+def i_(s): return f'<i>{s}</i>'
+def q(sym, sub='', sup='', vec=False):
+    b = f'<i>{sym}</i>'
+    if vec: b = f'<span class="ov">{b}</span>'
+    if sub: b += f'<sub>{sub}</sub>'
+    if sup: b += f'<sup>{sup}</sup>'
+    return b
+def fr(a, b): return f'<span class="nf"><span>{a}</span><span>{b}</span></span>'
+def L(body, cls=''): return f'<div class="nl {cls}">{body}</div>'
+def num(k): return f'<span class="nn">{k})</span>'
+def big(t): return f'<b class="nr">{t}</b>'
+def sign(cols, mag, dirs, eqno=''):
+    """the 'Մեծ. / ուղղ.' table written under a vector equation"""
+    head = ''.join(f'<th>{c}</th>' for c in cols)
+    return (f'<table class="nsign"><thead><tr><th></th>{head}</tr></thead><tbody>'
+            f'<tr><th>Մեծ.</th>{"".join(f"<td>{m}</td>" for m in mag)}</tr>'
+            f'<tr><th>ուղղ.</th>{"".join(f"<td>{d}</td>" for d in dirs)}</tr></tbody></table>')
+
+mul = q('μ', 'l'); muv = q('μ', 'v'); mua = q('μ', 'a')
+lAB, lBC, lCD, lCE = (q('l', s) for s in ('AB', 'BC', 'CD', 'CE'))
+w = {k: q('ω', str(k)) for k in range(1, 5)}; e = {k: q('ε', str(k)) for k in range(1, 5)}
+MUL = n(M.MU, 5).rstrip('0'); MUV = n(M.MUV, 3); MUA = n(M.MUA, 2)
+s1m = lambda x: n(x, 3)
+LCD = n(M.lCD, 3); LBC = n(C.LBC, 4); LAB = n(C.LAB, 4)
+INV1 = 'վ<sup>−1</sup>'; INV2 = 'վ<sup>−2</sup>'; MS = 'մ/վ'; MS2 = 'մ/վ<sup>2</sup>'
+CW = 'ժամ. սլաքի ուղղությամբ'; CCW = 'ժամ. սլաքի հակառակ ուղղությամբ'
+W1T = n(C.W1, 3)
+# synthesis numbers (same as in the §1 derivation of the main page)
+DE0P = r(2*M.CD*math.cos(math.radians(M.BETA))); DE0 = r(DE0P - M.H)
+COSG = DE0/(2*r(M.CD)); GAM = r(math.degrees(math.acos(COSG)), 1)
+
+def page(no, body, side='l'):
+    return f'<article class="npage {side}" aria-label="Տետրի էջ {no}"><span class="npno">{no}</span>{body}</article>'
+
+# ---------------- page 10 ----------------
+cols = ['H<sub>E</sub>', 'L<sub>1</sub>', 'L<sub>2</sub>', 'l<sub>CD</sub>', 'n<sub>1</sub>', 'G<sub>2</sub>', 'G<sub>5</sub>', 'F<sub>re</sub><sup>max</sup>', 'I<sub>S2</sub>']
+vals = [D_['HE'], D_['L1'], D_['L2'], D_['lCD'], D_['n1'], D_['G2'], D_['G5'], int(D_['Fmax']*100), D_['IS2']]
+p10 = page(10, f'''
+<div class="nbox">Առաջադրանք N {M.TASK} <span class="nvar">(տարբերակ {M.VARIANT})</span></div>
+<table class="ndata"><thead><tr>{"".join(f"<th><i>{c}</i></th>" for c in cols)}</tr></thead>
+<tbody><tr><td colspan="4">·10<sup>−3</sup> մ</td><td>պտ/ր</td><td>Ն</td><td>Ն</td><td>Ն</td><td>·10<sup>−3</sup></td></tr>
+<tr class="v">{"".join(f"<td>{x}</td>" for x in vals)}</tr></tbody></table>
+<ol class="ncond">
+<li>{lCE} = {lCD} = {LCD} մ</li>
+<li>{q('l','BS<sub>2</sub>')} = 0,5·{lBC}</li>
+<li>{q('M','m')} = const</li>
+<li>{q('δ')} = 0,05</li>
+<li>{q('β')} = 3°÷5°, ընդ. {q('β')} = {n(M.BETA,0)}°</li>
+</ol>
+<hr class="nrule">
+<h4 class="nsec">§1. Մեխանիզմի սինթեզ և դիրքերի պլանի կառուցում</h4>
+{L(f"{num(1)} {mul} = {fr(q('L','1'), q('L','1')+'*')} = {fr(n(M.L1,2), n(M.L1S,0))} = {big(MUL)} մ/մմ")}
+{L(f"{q('H','E')}* = {fr(q('H','E'), mul)} = {fr(n(M.HE,3), MUL)} = {big(n(M.H,1))} մմ", 'ind')}
+{L(f"{q('L','2')}* = {fr(q('L','2'), mul)} = {fr(n(M.L2,3), MUL)} = {big(n(M.L2S,1))} մմ", 'ind')}
+''')
+
+# ---------------- page 11 ----------------
+p11 = page(11, f'''
+{L(f"CD* = CE* = {fr(lCD, mul)} = {fr(LCD, MUL)} = {big(n(M.CD,1))} մմ", 'ind')}
+{L(f"{num(2)} DE<sub>0</sub>′ = 2·CD*·cos {q('β')} = 2·{n(M.CD,1)}·cos {n(M.BETA,0)}° = {big(n(DE0P))} մմ; &nbsp; DE<sub>0</sub> = DE<sub>0</sub>′ − {q('H','E')}* = {n(DE0P)} − {n(M.H)} = {big(n(DE0))} մմ")}
+{L(f"cos {q('γ')} = {fr('DE<sub>0</sub>', '2·CD*')} = {fr(n(DE0), n(2*M.CD,1))} = {n(COSG,4)}; &nbsp; {q('γ')} = {big(n(GAM))}°; &nbsp; {q('ψ')} = {q('γ')} − {q('β')} = {n(GAM)}° − {n(M.BETA,0)}° = {big(n(M.PSI)+'°')}", 'ind')}
+{L(f'''{num(3)} <span class="nsys">± <span class="nbr"><span>B<sub>0</sub>C<sub>0</sub> − AB<sub>0</sub> = AC<sub>0</sub></span><span>AB<sub>0</sub>′ + B<sub>0</sub>′C<sub>0</sub>′ = AC<sub>0</sub>′</span></span></span>
+   <span class="nsys"><span class="nbr p"><span>AB<sub>0</sub> = AB<sub>0</sub>′</span><span>B<sub>0</sub>C<sub>0</sub> = B<sub>0</sub>′C<sub>0</sub>′</span></span></span>''')}
+{L(f'''<span class="nsys">± <span class="nbr"><span>BC − AB = {n(C.AC0)}</span><span>AB + BC = {n(C.AC0P)}</span></span></span>
+   <span class="nside">2·BC = {n(C.AC0+C.AC0P)}; BC = {big(n(C.BC))} մմ<br>AB = {n(C.AC0P)} − {n(C.BC)} = {big(n(C.AB))} մմ</span>''', 'ind')}
+{L(f"{lAB} = AB·{mul} = {n(C.AB)}·{MUL} = {big(LAB)} մ", 'ind')}
+{L(f"{lBC} = BC·{mul} = {n(C.BC)}·{MUL} = {big(LBC)} մ", 'ind')}
+<hr class="nrule">
+<h4 class="nsec">§2. Արագությունների պլանների կառուցում</h4>
+{L(f"{num(1)} {q('V','B')} = {w[1]}·{lAB} = {fr('π·'+q('n','1'), '30')}·{lAB} = {fr('3,14·'+str(D_['n1']), '30')}·{LAB} = {W1T}·{LAB} = {big(n(C.VB,3))} {MS}")}
+{L(f"{q('V','B',vec=True)} ⊥ AB ({w[1]}-ի ուղղությամբ, {CCW})", 'ind')}
+{L(f"{num(2)} {q('V','C',vec=True)} = {q('V','B',vec=True)} + {q('V','CB',vec=True)} &nbsp;(1)"
+   f"<span class='nside'>{q('V','CB',vec=True)} ⊥ BC<br>{q('V','C',vec=True)} ⊥ CD</span>")}
+{sign([q('V','C',vec=True), q('V','B',vec=True), q('V','CB',vec=True)], ['−', '+', '−'], ['+ (⊥CD)', '+ (⊥AB)', '+ (⊥BC)'])}
+''', 'r')
+
+# ---------------- page 12 ----------------
+p12 = page(12, f'''
+{L(f"{num(3)} {q('V','E',vec=True)} = {q('V','C',vec=True)} + {q('V','EC',vec=True)} &nbsp;(2)"
+   f"<span class='nside'>{q('V','EC',vec=True)} ⊥ CE<br>{q('V','E',vec=True)} ∥ yy</span>")}
+{sign([q('V','E',vec=True), q('V','C',vec=True), q('V','EC',vec=True)], ['−', '+', '−'], ['+ (∥yy)', '+', '+ (⊥CE)'])}
+{L(f"CE = CD ⇒ ce = pc &nbsp;(3) &nbsp;[մմ]; &nbsp; {w[4]} = {w[3]} (հակառակ ուղղությամբ)", 'ind sm')}
+{L(f"{num(4)} bs<sub>2</sub> = cs<sub>2</sub>")}
+{L(f"{num(5)} {muv} = {n(M.MUV,3)} {fr('մ·վ<sup>−1</sup>', 'մմ')} (ընդ.); &nbsp; pb = {fr(q('V','B'), muv)} = {fr(n(C.VB4,4), MUV)} = {big(n(C.PB))} մմ")}
+{L(f"{num(6)} Դիրք {P2}")}
+{L(f"{q('V','C')} = (pc)·{muv} = {n(v2['pc'])}·{MUV} = {big(n(v2['VC'],3))} [{MS}]", 'ind')}
+{L(f"{q('V','EC')} = (ce)·{muv} = {n(v2['ce'])}·{MUV} = {big(n(v2['VEC'],3))} {MS}", 'ind')}
+{L(f"{q('V','E')} = (pe)·{muv} = {n(v2['pe'])}·{MUV} = {big(n(v2['VE'],3))} {MS} {v2['VEs']}", 'ind')}
+{L(f"{q('V','S<sub>2</sub>')} = (ps<sub>2</sub>)·{muv} = {n(v2['ps2'])}·{MUV} = {big(n(v2['VS2'],3))} {MS}", 'ind')}
+{L(f"{q('V','CB')} = (bc)·{muv} = {n(v2['bc'])}·{MUV} = {big(n(v2['VCB'],3))} {MS}", 'ind')}
+{L(f"{w[2]} = {q('V','CB')}/{lBC} = {n(v2['VCB'],3)}/{LBC} = {big(n(v2['w2'],2))} [{INV1}] {v2['w2s']}", 'ind')}
+''')
+
+# ---------------- page 13 ----------------
+rows = ''
+for i in list(range(8)):
+    c = vc[i]
+    lab = '0 (8)' if i == 0 else str(i)
+    rows += (f'<tr{" class=wk" if i == P2 else ""}><th>{lab}</th>'
+             + ''.join(f'<td>{n(c[k],3)}</td>' for k in ('VC', 'VE', 'VEC', 'VCB', 'VS2'))
+             + ''.join(f'<td>{n(c[k],2)} {c[k+"s"] if c[k+"s"] != "—" else ""}</td>' for k in ('w2', 'w3', 'w4')) + '</tr>')
+p13 = page(13, f'''
+{L(f"{w[3]} = {fr(q('V','C'), lCD)} = {fr(n(v2['VC'],3), LCD)} = {big(n(v2['w3'],2))} {INV1} {v2['w3s']}", 'ind')}
+{L(f"{w[4]} = {fr(q('V','EC'), lCE)} = {fr(n(v2['VEC'],3), LCD)} = {big(n(v2['w4'],2))} {INV1} {v2['w4s']}", 'ind')}
+<table class="ntbl"><thead>
+<tr><th rowspan="2"><i>i</i></th><th>{q('V','C')}</th><th>{q('V','E')}</th><th>{q('V','EC')}</th><th>{q('V','CB')}</th><th>{q('V','S<sub>2</sub>')}</th><th>{w[2]}</th><th>{w[3]}</th><th>{w[4]}</th></tr>
+<tr><th colspan="5">մ/վ</th><th colspan="3">{INV1}</th></tr></thead><tbody>{rows}</tbody></table>
+''', 'r')
+
+# ---------------- insert: step 6 for every position ----------------
+def pos_block(i):
+    c = vc[i]
+    if i == 0:
+        return (f'<div class="npos"><h5>Դիրք 0 (8)</h5>'
+                f'<p>A, B, C մեկ ուղղի վրա են ⇒ c ≡ p, e ≡ p</p>'
+                f'<p>{q("V","C")} = {q("V","E")} = {q("V","EC")} = 0</p>'
+                f'<p>bc = pb = {n(C.PB)} մմ; {q("V","CB")} = {n(C.PB)}·{MUV} = {big(n(c["VCB"],3))}</p>'
+                f'<p>ps<sub>2</sub> = {n(c["ps2"])}; {q("V","S<sub>2</sub>")} = {big(n(c["VS2"],3))}</p>'
+                f'<p>{w[2]} = {n(c["VCB"],3)}/{LBC} = {big(n(c["w2"],2))} {c["w2s"]}; {w[3]} = {w[4]} = 0</p></div>')
+    return (f'<div class="npos{" wk" if i == P2 else ""}"><h5>Դիրք {i}</h5>'
+            f'<p>pc = ce = {n(c["pc"])} → {q("V","C")} = {q("V","EC")} = {big(n(c["VC"],3))}</p>'
+            f'<p>pe = {n(c["pe"])} → {q("V","E")} = {big(n(c["VE"],3))} {c["VEs"]}</p>'
+            f'<p>ps<sub>2</sub> = {n(c["ps2"])} → {q("V","S<sub>2</sub>")} = {big(n(c["VS2"],3))}</p>'
+            f'<p>bc = {n(c["bc"])} → {q("V","CB")} = {big(n(c["VCB"],3))}</p>'
+            f'<p>{w[2]} = {n(c["VCB"],3)}/{LBC} = {big(n(c["w2"],2))} {c["w2s"]}</p>'
+            f'<p>{w[3]} = {n(c["VC"],3)}/{LCD} = {big(n(c["w3"],2))} {c["w3s"]}</p>'
+            f'<p>{w[4]} = {n(c["VEC"],3)}/{LCD} = {big(n(c["w4"],2))} {c["w4s"]}</p></div>')
+insert = page('13ա', f'''
+{L(f"{num(6)} Բոլոր դիրքերի համար ({muv} = {MUV})")}
+<div class="nposg">{"".join(pos_block(i) for i in range(8))}</div>
+''', 'l wide')
+
+# ---------------- page 14 ----------------
+p14 = page(14, f'''
+<h4 class="nsec">§3. Արագացումների պլանի կառուցում</h4>
+{L(f"Դիրք {P2}-ի համար")}
+{L(f"{num(1)} {q('a','B',vec=True)} = {q('a','B','n',True)} + {q('a','B','t',True)}")}
+{L(f"{q('a','B','n')} = {w[1]}<sup>2</sup>·{lAB} = {W1T}<sup>2</sup>·{LAB} = {big(n(C.AB_ACC,3))} {MS2}; &nbsp; {q('a','B','n',True)} (B → A)", 'ind')}
+{L(f"{q('a','B','t')} = {e[1]}·{lAB} = {fr('d'+w[1], 'dt')}·{lAB} = 0 &nbsp; (քանի որ {w[1]} = const)", 'ind')}
+{L(f"{q('a','B',vec=True)} = {q('a','B','n',True)}", 'ind')}
+{L(f"{num(2)} {q('a','C',vec=True)} = {q('a','B',vec=True)} + {q('a','CB','n',True)} + {q('a','CB','t',True)} &nbsp;(1)")}
+{sign([q('a','C',vec=True), q('a','B',vec=True), q('a','CB','n',True), q('a','CB','t',True)], ['−', '+', '+', '−'], ['−', 'B→A', 'C→B', '⊥BC'])}
+{L(f"{q('a','CB','n')} = {w[2]}<sup>2</sup>·{lBC} = {n(v2['w2'],2)}<sup>2</sup>·{LBC} = {big(n(a2['aCBn'],3))} {MS2}", 'ind')}
+{L(f"{q('a','C',vec=True)} = {q('a','D',vec=True)} + {q('a','CD','n',True)} + {q('a','CD','t',True)} &nbsp;(2)")}
+{sign([q('a','C',vec=True), q('a','D',vec=True), q('a','CD','n',True), q('a','CD','t',True)], ['−', '0', '+', '−'], ['−', '(−)', 'C→D', '⊥CD'])}
+{L(f"{q('a','CD','n')} = {w[3]}<sup>2</sup>·{lCD} = {n(v2['w3'],2)}<sup>2</sup>·{LCD} = {big(n(a2['aCDn'],3))} {MS2}", 'ind')}
+''')
+
+# ---------------- page 15 ----------------
+p15 = page(15, f'''
+{L(f"{q('a','B',vec=True)} + {q('a','CB','n',True)} + {q('a','CB','t',True)} = {q('a','CD','n',True)} + {q('a','CD','t',True)} &nbsp;(3)")}
+{L(f"{num(3)} {mua} = {n(M.MUA,2)} {fr('մ·վ<sup>−2</sup>', 'մմ')} (ընդ.); &nbsp; πb = {fr(q('a','B','n'), mua)} = {fr(n(C.AB_ACC,3), MUA)} = {big(n(C.PIB))} մմ")}
+{L(f"bn<sub>2</sub> = {fr(q('a','CB','n'), mua)} = {fr(n(a2['aCBn'],3), MUA)} = {big(n(a2['bn2']))} [մմ]", 'ind')}
+{L(f"πn<sub>3</sub> = {fr(q('a','CD','n'), mua)} = {fr(n(a2['aCDn'],3), MUA)} = {big(n(a2['pin3']))} [մմ]", 'ind')}
+{L(f"{num(4)} {q('a','E',vec=True)} = {q('a','C',vec=True)} + {q('a','EC','n',True)} + {q('a','EC','t',True)} &nbsp;(4)")}
+{sign([q('a','E',vec=True), q('a','C',vec=True), q('a','EC','n',True), q('a','EC','t',True)], ['−', '+', '+', '−'], ['∥yy', '+', 'E→C', '⊥CE'])}
+{L(f"{q('a','EC','n')} = {w[4]}<sup>2</sup>·{lCE} = {n(v2['w4'],2)}<sup>2</sup>·{LCD} = {big(n(a2['aECn'],3))} {MS2}", 'ind')}
+{L(f"cn<sub>4</sub> = {fr(q('a','EC','n'), mua)} = {fr(n(a2['aECn'],3), MUA)} = {big(n(a2['cn4']))} [մմ] &nbsp;(= πn<sub>3</sub>, քանի որ CE = CD)", 'ind')}
+''', 'r')
+
+# ---------------- page 16 ----------------
+p16 = page(16, f'''
+{L(f"{q('a','C')} = (πc)·{mua} = {n(a2['pic'])}·{MUA} = {big(n(a2['aC'],3))} {MS2}")}
+{L(f"{q('a','E')} = (πe)·{mua} = {n(a2['pie'])}·{MUA} = {big(n(a2['aE'],3))} {MS2} {a2['aEs']}")}
+{L(f"{q('a','CB','t')} = (n<sub>2</sub>c)·{mua} = {n(a2['n2c'])}·{MUA} = {big(n(a2['aCBt'],3))} {MS2}")}
+{L(f"{q('a','CD','t')} = (n<sub>3</sub>c)·{mua} = {n(a2['n3c'])}·{MUA} = {big(n(a2['aCDt'],3))} {MS2}")}
+{L(f"{q('a','EC','t')} = (n<sub>4</sub>e)·{mua} = {n(a2['n4e'])}·{MUA} = {big(n(a2['aECt'],3))} {MS2}")}
+{L(f"{q('a','S<sub>2</sub>')} = (πs<sub>2</sub>)·{mua} = {n(a2['pis2'])}·{MUA} = {big(n(a2['aS2'],3))} {MS2}", 'opt')}
+{L(f"{e[2]} = {fr(q('a','CB','t'), lBC)} = {fr(n(a2['aCBt'],3), LBC)} = {big(n(a2['e2'],1))} {INV2} {a2['e2s']}; &nbsp; {e[3]} = {fr(q('a','CD','t'), lCD)} = {fr(n(a2['aCDt'],3), LCD)} = {big(n(a2['e3'],1))} {INV2} {a2['e3s']}")}
+{L(f"{e[4]} = {fr(q('a','EC','t'), lCE)} = {fr(n(a2['aECt'],3), LCD)} = {big(n(a2['e4'],1))} {INV2} {a2['e4s']}")}
+''')
+
+# ---------------- §4: reduced moment (pages 17–18) ----------------
+# Pages 17–22 hold only what is written in the copybook; explanations and checks live in the tips of tetr.py.
+# Every § starts with its heading and numbers its items 1), 2), … across its pages.
+KMT = n(C.KM, 7); W1T = n(C.W1, 3)
+def sgn(x, nd=1): return ('+' if x > 0 else '') + n(x, nd)
+p17 = page(17, f"""
+<h4 class="nsec">§4. Բերված մոմենտի որոշումը և գրաֆիկի կառուցումը</h4>
+{L(f"{num(1)} {q('M','P')}·{w[1]} = Σ {q('F','i')}·{q('V','i')}·cos {q('α','i')}")}
+{L(f"{q('M','P')}<sub>j</sub> = {q('G','2')}·{fr(q('V','S<sub>2</sub>')+'·cos '+q('α','2'), w[1])} + {q('G','5')}·{fr(q('V','E')+'·cos '+q('α','5'), w[1])} − {q('F','r')}·{fr(q('V','E'), w[1])}", 'ind')}
+{L(f"{q('G','2')} = {C.G2} Ն; &nbsp;{q('G','5')} = {C.G5} Ն; &nbsp;{w[1]} = {W1T} {INV1}", 'ind')}
+{L(f"{q('α','5')} = 0° (j = 1…4); &nbsp;{q('α','5')} = 180° (j = 5…7)", 'ind')}
+{L(f"{num(2)} {q('μ','F')} = {fr(q('F','re')+'<sup>max</sup>', q('y','max'))} = {fr(str(int(M.FMAX)), n(C.FRE_MAX_MM,0))} = {big(n(M.MUF,0))} Ն/մմ; &nbsp;{q('F','r')} = {q('y','j')}·{q('μ','F')}")}
+{L(f"{num(3)} {q('V','S<sub>2</sub>')}·cos {q('α','2')} = (ps<sub>2</sub>·cos {q('α','2')})·{muv}; &nbsp;{q('V','E')} = (pe)·{muv}")}
+{L(f"{fr(muv, w[1])} = {fr(MUV, W1T)} = {big(KMT)} մ/մմ", 'ind')}
+{L(f"{q('M','P')}<sub>j</sub> = {KMT}·[{C.G2}·(ps<sub>2</sub>cos {q('α','2')}) ± {C.G5}·(pe) − {q('F','r')}·(pe)]", 'ind')}
+""", 'r')
+
+m2 = C.MP[P2]
+mrows = ''.join(
+    f'<tr{" class=wk" if j == P2 else ""}><th>{j}</th><td>{sgn(x["ys2"])}</td><td>{n(x["pe"])}</td><td>{x["a5"]}°</td>'
+    f'<td>{n(x["yF"])}</td><td>{n(x["Fr"],0)}</td><td>{n(x["M"])}</td><td>{n(x["Mmm"])}</td></tr>' for j, x in enumerate(C.MP))
+p18 = page(18, f"""
+{L(f"{num(4)} {q('M','P')}<sub>{P2}</sub> = {KMT}·[{C.G2}·({n(m2['ys2'])}) + {C.G5}·{n(m2['pe'])} − {n(m2['Fr'],0)}·{n(m2['pe'])}] = {big(n(m2['M']))} Ն·մ")}
+<table class="ntbl"><thead>
+<tr><th><i>j</i></th><th>ps<sub>2</sub>cos {q('α','2')}</th><th>pe</th><th>{q('α','5')}</th><th>{q('y','j')}</th><th>{q('F','r')}</th><th>{q('M','P')}<sub>j</sub></th><th>({q('M','P')})<sub>j</sub><sup>գծ</sup></th></tr>
+<tr><th></th><th>մմ</th><th>մմ</th><th></th><th>մմ</th><th>Ն</th><th>Ն·մ</th><th>մմ</th></tr></thead><tbody>{mrows}</tbody></table>
+{L(f"{num(5)} {q('μ','M')} = {fr('|'+q('M','P')+'|<sub>max</sub>', f'{C.MP_YMAX} մմ')} = {fr(n(C.MP_MAX), str(C.MP_YMAX))} = {big(n(C.MU_M,2))} Ն·մ/մմ")}
+{L(f"{q('μ','φ')} = {fr('2π', '160 մմ')} = {fr('2·3,14', '160')} = {big(n(C.MU_PHI,3))} ռադ/մմ", 'ind')}
+{L(f"{num(6)} ({q('M','P')})<sub>j</sub><sup>գծ</sup> = {fr(q('M','P')+'<sub>j</sub>', q('μ','M'))}")}
+""")
+
+# ---------------- §5 (methodology 1.8–1.9): work graphs and kinetic-energy increment (pages 19–20) ----------------
+OPT = str(C.OP); KOP = n(20/C.OP, 2)
+ar_lines = ''.join(
+    L(f"{q('y', str(k+1)+'′')} = {n(C.AR[k])} + ({n(C.YMID[k])})·{KOP} = {big(n(C.AR[k+1]))} մմ", 'ind')
+    for k in range(8))
+ymid_line = '; &nbsp;'.join(f"{q('y', str(k+1), 'մ')} = {n(C.YMID[k])}" for k in range(8))
+p19 = page(19, f"""
+<h4 class="nsec">§5. Աշխատանքների և կինետիկ էներգիայի աճի գրաֆիկները</h4>
+{L(f"{num(1)} OP = {C.OP} մմ; &nbsp;{q('μ','A')} = {q('μ','M')}·{q('μ','φ')}·OP = {n(C.MU_M,2)}·{n(C.MU_PHI,3)}·{C.OP} = {big(n(C.MU_A,2))} Ջ/մմ")}
+{L(f"{num(2)} {ymid_line} &nbsp;մմ")}
+{L(f"{num(3)} {q('y','j′')} = {q('y','(j−1)′')} + {q('y','j','մ')}·{fr('20', 'OP')} = {q('y','(j−1)′')} + {q('y','j','մ')}·{KOP}")}
+{ar_lines}
+""", 'r')
+
+drows = ''.join(
+    f'<tr{" class=wk" if j in (C.J_MAX, C.J_MIN) else ""}><th>{j}</th><td>{n(C.AM[j])}</td><td>{n(C.AR[j])}</td><td>{n(C.DE[j])}</td><td>{n(C.DE[j]*C.MU_A)}</td></tr>' for j in range(9))
+p20 = page(20, f"""
+{L(f"{num(4)} {q('y','j','Am')} = |{q('y','8′')}|·{fr('j', '8')}; &nbsp;|{q('y','8′')}| = {big(n(-C.AR[8]))} մմ")}
+{L(f"{num(5)} {q('y','j','ΔE')} = {q('y','j','Am')} + {q('y','j′')}; &nbsp;ΔE<sub>j</sub> = {q('y','j','ΔE')}·{q('μ','A')}")}
+<table class="ntbl"><thead>
+<tr><th><i>j</i></th><th>{q('y','j','Am')}</th><th>{q('y','j′')}</th><th>{q('y','j','ΔE')}</th><th>ΔE<sub>j</sub></th></tr>
+<tr><th></th><th>մմ</th><th>մմ</th><th>մմ</th><th>Ջ</th></tr></thead><tbody>{drows}</tbody></table>
+{L(f"{num(6)} A = |{q('y','8′')}|·{q('μ','A')} = {n(-C.AR[8])}·{n(C.MU_A,2)} = {big(n(C.A_CYCLE,0))} Ջ")}
+{L(f"{num(7)} {q('M','m')} = {q('y','Mm')}·{q('μ','M')} = {n(C.YMM)}·{n(C.MU_M,2)} = {big(n(C.M_M))} Ն·մ")}
+{L(f"{num(8)} ΔE<sub>max</sub> − ΔE<sub>min</sub> = {n(C.DE_MAX*C.MU_A)} − ({n(C.DE_MIN*C.MU_A)}) = {big(n(C.DE_RANGE))} Ջ")}
+""")
+
+# ---------------- §6 (methodology 1.10): reduced moment of inertia (pages 21–22) ----------------
+j2 = C.IP[P2]
+ip_line = lambda x: f"{n(C.M2,2)}·{n(x['a'],5)} + {n(C.IS2,2)}·{n(x['b'],5)} + {n(C.M5,2)}·{n(x['f'],5)}"
+p21 = page(21, f"""
+<h4 class="nsec">§6. Բերված իներցիայի մոմենտի որոշումը և գրաֆիկի կառուցումը</h4>
+{L(f"{num(1)} {q('I','P')}·{fr(w[1]+'<sup>2</sup>', '2')} = {q('m','2')}·{fr(q('V','S<sub>2</sub>')+'<sup>2</sup>', '2')} + {q('I','S<sub>2</sub>')}·{fr(w[2]+'<sup>2</sup>', '2')} + {q('m','5')}·{fr(q('V','E')+'<sup>2</sup>', '2')}")}
+{L(f"{q('I','P')} = {q('m','2')}·({fr(q('V','S<sub>2</sub>'), w[1])})<sup>2</sup> + {q('I','S<sub>2</sub>')}·({fr(w[2], w[1])})<sup>2</sup> + {q('m','5')}·({fr(q('V','E'), w[1])})<sup>2</sup>", 'ind')}
+{L(f"{num(2)} {q('m','2')} = {fr(q('G','2'), 'g')} = {fr(str(C.G2), str(C.G_ACC))} = {big(n(C.M2,2))} կգ; &nbsp;{q('m','5')} = {fr(q('G','5'), 'g')} = {fr(str(C.G5), str(C.G_ACC))} = {big(n(C.M5,2))} կգ")}
+{L(f"{q('I','S<sub>2</sub>')} = {D_['IS2']}·10<sup>−3</sup> = {big(n(C.IS2,2))} կգ·մ<sup>2</sup>; &nbsp;{w[1]} = {W1T} {INV1}", 'ind')}
+{L(f"{num(3)} Դիրք {P2}. {q('V','S<sub>2</sub>')} = {n(j2['VS2'],3)} {MS}; &nbsp;{w[2]} = {n(j2['w2'],2)} {INV1}; &nbsp;{q('V','E')} = {n(j2['VE'],3)} {MS}")}
+{L(f"({fr(q('V','S<sub>2</sub>'), w[1])})<sup>2</sup> = ({fr(n(j2['VS2'],3), W1T)})<sup>2</sup> = {n(j2['a'],5)}; &nbsp;({fr(w[2], w[1])})<sup>2</sup> = ({fr(n(j2['w2'],2), W1T)})<sup>2</sup> = {n(j2['b'],5)}; &nbsp;({fr(q('V','E'), w[1])})<sup>2</sup> = ({fr(n(j2['VE'],3), W1T)})<sup>2</sup> = {n(j2['f'],5)}", 'ind')}
+{L(f"{q('I','P')}<sub>{P2}</sub> = {ip_line(j2)} = {n(j2['t2'],6)} + {n(j2['tw'],6)} + {n(j2['t5'],6)} = {big(n(j2['I'],5))} կգ·մ<sup>2</sup>", 'ind')}
+""", 'r')
+
+irows = ''.join(
+    f'<tr{" class=wk" if j == C.J_IMAX else ""}><th>{j}</th><td>{n(x["a"],5)}</td><td>{n(x["b"],5)}</td><td>{n(x["f"],5)}</td><td>{n(x["I"],5)}</td><td>{n(x["Imm"])}</td></tr>' for j, x in enumerate(C.IP))
+p22 = page(22, f"""
+<table class="ntbl"><thead>
+<tr><th><i>j</i></th><th>({fr(q('V','S<sub>2</sub>'), w[1])})<sup>2</sup></th><th>({fr(w[2], w[1])})<sup>2</sup></th><th>({fr(q('V','E'), w[1])})<sup>2</sup></th><th>({q('I','P')})<sub>j</sub></th><th>({q('I','P')})<sub>j</sub><sup>գծ</sup></th></tr>
+<tr><th></th><th>մ<sup>2</sup></th><th>—</th><th>մ<sup>2</sup></th><th>կգ·մ<sup>2</sup></th><th>մմ</th></tr></thead><tbody>{irows}</tbody></table>
+{L(f"{num(4)} {q('μ','I')} = {fr(q('I','P')+'<sub>max</sub>', '80 մմ')} = {fr(n(C.IP_MAX,5), '80')} = {big(n(C.MU_I*1e4,3))}·10<sup>−4</sup> կգ·մ<sup>2</sup>/մմ")}
+{L(f"{q('μ','φ')} = {fr('2π', '160 մմ')} = {big(n(C.MU_PHI,3))} ռադ/մմ", 'ind')}
+{L(f"{num(5)} ({q('I','P')})<sub>j</sub><sup>գծ</sup> = {fr(q('I','P')+'<sub>j</sub>', q('μ','I'))}")}
+""")
+
+SECTION = f'''
+<section class="wide-sec sec" id="copybook">
+  <div class="wrap">
+    <h2>Տետրը (էջ 10–22)</h2>
+    <div class="prose">
+      <p>Ձեր տետրի էջերը՝ լրացված այս տարբերակի թվերով։ Կառուցվածքը, համարակալումը և նշանակումները նույնն են, ինչ լուսանկարներում. «…»-ի տեղում թվերն են։ Թավով գրվածը վերջնական արդյունքն է։ <b>13ա</b> ներդիրը ցույց է տալիս 6-րդ կետը բոլոր 8 դիրքերի համար. էջ 13-ի աղյուսակը լրացվում է դրանից։</p>
+      <p class="note">Հատվածները (pc, bc, pe, …) չափված են A3 թերթի պլաններից. ձեր չափումները կարող են տարբերվել ±0,5 մմ-ով, դա նորմալ է. այդ դեպքում արագությունը վերահաշվեք նույն բանաձևով։ ce-ն հավասար է pc-ին (CE = CD, բանաձև (3)), իսկ bn₂, πn₃, cn₄ հատվածները չեն չափվում, հաշվվում են։</p>
+    </div>
+  </div>
+  <div class="nbook">{p10}{p11}{p12}{p13}{insert}{p14}{p15}{p16}</div>
+</section>'''
+
+SECTION = SECTION.replace('↻', '<span class="rot">↻</span>').replace('↺', '<span class="rot">↺</span>')
+
+CSS = r'''
+.nbook{max-width:1240px;margin:22px auto 0;padding-inline:20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,540px),1fr));gap:22px;align-items:start}
+.npage{position:relative;background-color:#FBFAF3;background-image:linear-gradient(#C9CCE6 1px,transparent 1px),linear-gradient(90deg,#C9CCE6 1px,transparent 1px);background-size:20px 20px;background-position:-1px -1px;
+  color:#22388A;font-family:var(--f-math);font-size:17px;line-height:1.5;padding:46px 30px 34px 62px;box-shadow:0 1px 2px rgba(0,0,0,.12),0 6px 18px rgba(0,0,0,.08);border-radius:2px 6px 6px 2px;min-height:560px;overflow-x:auto}
+.npage::before{content:"";position:absolute;top:0;bottom:0;left:46px;width:1.5px;background:#E07B7B}
+.npage.r{padding:46px 62px 34px 30px;border-radius:6px 2px 2px 6px}
+.npage.r::before{left:auto;right:46px}
+.npage.wide{grid-column:1/-1}
+.npno{position:absolute;top:12px;left:12px;width:30px;height:30px;border:1.5px solid currentColor;border-radius:50%;display:grid;place-items:center;font-size:13px;font-weight:600}
+.npage.r .npno{left:auto;right:12px}
+.npage sub,.npage sup{font-size:.68em}
+.nbox{border:1.5px solid currentColor;padding:4px 14px;text-align:center;font-family:var(--f-sans);font-size:1.15rem;margin:0 auto 12px;width:max-content;max-width:100%}
+.nvar{font-size:.8rem;opacity:.75}
+.ndata{border-collapse:collapse;margin:0 0 12px;font-size:.92rem;background:rgba(251,250,243,.7)}
+.ndata th,.ndata td{border:1.3px solid currentColor;padding:2px 7px;text-align:center;font-weight:400;white-space:nowrap}
+.ndata tr.v td{font-weight:600}
+.ncond{margin:0 0 6px;padding-left:1.6em;display:grid;gap:1px}
+.nrule{border:0;border-top:1.3px solid currentColor;margin:12px -10px}
+.nsec{font-family:var(--f-sans);font-size:1.02rem;font-weight:600;text-align:center;margin:4px 0 10px;color:#22388A}
+.nl{padding:4px 0;min-height:40px;line-height:2.05}.nl::after{content:"";display:block;clear:both}
+.nl.ind{padding-left:1.6em}
+.nl.sm{font-size:.9rem;min-height:30px}
+.nl.opt{opacity:.8}
+.nn{display:inline-block;min-width:1.6em;font-weight:600}
+.nr{font-weight:700;color:#14246B;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+.nf{display:inline-flex;flex-direction:column;vertical-align:middle;text-align:center;line-height:1.2;margin:0 .1em}
+.nf>span{padding:0 .2em}.nf>span:last-child{border-top:1.2px solid currentColor}
+.ov{text-decoration:overline;text-decoration-thickness:1.2px}
+.nsys{display:inline-flex;align-items:center;gap:4px;vertical-align:middle;margin-right:10px}
+.nbr{display:inline-flex;flex-direction:column;border-left:1.5px solid currentColor;border-radius:8px 0 0 8px;padding-left:.45em;line-height:1.4}
+.nbr.p{border-right:1.5px solid currentColor;border-radius:8px;padding-right:.45em}
+.nside{float:right;margin-left:14px;font-size:.95rem;line-height:1.45;text-align:left}
+.nsign{border-collapse:collapse;margin:2px 0 8px 1.6em;font-size:.92rem}
+.nsign th,.nsign td{border:1.3px solid currentColor;padding:1px 12px;text-align:center;font-weight:400;white-space:nowrap}
+.nsign thead th:first-child{border-top-color:transparent;border-left-color:transparent}
+.nsign tbody th{font-family:var(--f-sans);font-size:.8rem}
+.ncap{font-family:var(--f-sans);font-size:.85rem;margin:8px 0 2px}
+.ntext{font-family:var(--f-sans);font-size:.95rem;margin:0 0 6px}
+.rot{font-family:system-ui,-apple-system,"Segoe UI Symbol",sans-serif;font-size:.95em}
+.nnote{font-family:var(--f-sans);font-size:.8rem;margin:10px 0 0;opacity:.85}
+.ntbl{border-collapse:collapse;margin:14px 0 0;font-size:.9rem;background:rgba(251,250,243,.7)}
+.ntbl th,.ntbl td{border:1.3px solid currentColor;padding:3px 8px;text-align:center;white-space:nowrap;font-weight:400}
+.ntbl tbody th{font-weight:600}
+.ntbl tr.wk td,.ntbl tr.wk th{background:rgba(243,222,91,.35);font-weight:700}
+.nposg{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:4px 22px}
+.npos{padding:4px 0 8px}
+.npos h5{font-family:var(--f-sans);font-size:.92rem;margin:0 0 2px;font-weight:650}
+.npos p{margin:0;font-size:.95rem;line-height:1.55}
+.npos.wk h5{background:rgba(243,222,91,.45);display:inline-block;padding:0 6px}
+@media (max-width:600px){.npage,.npage.r{padding:44px 14px 24px 40px;font-size:15px}.npage::before{left:30px}.npage.r::before{left:30px;right:auto}.npage.r .npno{left:6px;right:auto}.npno{left:6px}.nside{float:none;display:block;margin:2px 0 0 1.6em}}
+'''

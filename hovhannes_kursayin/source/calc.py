@@ -1,0 +1,139 @@
+"""Rounded 'graphical chain' values exactly as a student writes them in the notebook."""
+import math
+import model as M
+from model import sub, mag
+
+def r(x, nd=1):
+    return round(x + (1e-9 if x >= 0 else -1e-9), nd)
+def n(x, nd=1):
+    s = f"{r(x, nd):.{nd}f}".replace('.', ',')
+    return s.replace('-', '−')
+
+AC0 = r(M.AC0); AC0P = r(M.AC0p)
+BC = r((AC0P+AC0)/2); AB = r((AC0P-AC0)/2)
+LAB = r(AB*M.MU, 4); LBC = r(BC*M.MU, 4); LCD = M.lCD; LCE = M.lCE
+LBS2 = r(0.5*LBC, 4); BS2S = r(LBS2/M.MU)
+W1 = r(M.W1, 3)
+VB4 = r(W1*LAB, 4); VB = r(W1*LAB, 3)
+PB = r(VB4/M.MUV)
+AB_ACC = r(W1**2*LAB, 3)
+PIB = r(AB_ACC/M.MUA)
+
+def rot_sym(w, eps=1e-6):
+    if abs(w) < eps: return '—'
+    return '↺' if w > 0 else '↻'
+
+def vchain(i):
+    v = M.vplan(i); K = M.POS[i]['K']
+    pc = r(mag(v['c'])); bc = r(mag(sub(v['c'], v['b']))); ce = r(mag(sub(v['e'], v['c'])))
+    pe = r(mag(v['e'])); ps2 = r(mag(v['s2']))
+    if pc == 0: bc = PB                       # dead position: c ≡ p, so bc = pb
+    VC, VCB, VEC, VE, VS2 = (r(x*M.MUV, 3) for x in (pc, bc, ce, pe, ps2))   # as written: 3 decimals
+    return dict(pb=PB, pc=pc, bc=bc, ce=ce, pe=pe, ps2=ps2, VC=VC, VCB=VCB, VEC=VEC, VE=VE, VS2=VS2,
+                w2=r(VCB/LBC, 2), w3=r(VC/LCD, 2), w4=r(VEC/LCE, 2),
+                w2s=rot_sym(K['w2']), w3s=rot_sym(K['w3']), w4s=rot_sym(K['w4']),
+                VEs=('—' if abs(K['VE'][1]) < 1e-6 else ('↓' if K['VE'][1] < 0 else '↑')))
+
+def achain(i):
+    a = M.aplan(i); K = M.POS[i]['K']; vc = vchain(i)
+    aCBn = r(vc['w2']**2*LBC, 3); aCDn = r(vc['w3']**2*LCD, 3); aECn = r(vc['w4']**2*LCE, 3)   # a^n = ω²·l (notebook)
+    bn2 = r(aCBn/M.MUA); pin3 = r(aCDn/M.MUA); cn4 = r(aECn/M.MUA)
+    n2c = r(mag(sub(a['c'], a['n2']))); n3c = r(mag(sub(a['c'], a['n3']))); pic = r(mag(a['c']))
+    n4e = r(mag(sub(a['e'], a['n4']))); pie = r(mag(a['e'])); pis2 = r(mag(a['s2']))
+    aCBt, aCDt, aC, aECt, aE, aS2 = (r(x*M.MUA, 3) for x in (n2c, n3c, pic, n4e, pie, pis2))
+    return dict(pib=PIB, aCBn=aCBn, aCDn=aCDn, aECn=aECn, bn2=bn2, pin3=pin3, cn4=cn4, n2c=n2c, n3c=n3c, pic=pic,
+                n4e=n4e, pie=pie, pis2=pis2, aCBt=aCBt, aCDt=aCDt, aC=aC, aECt=aECt, aE=aE, aS2=aS2,
+                e2=r(aCBt/LBC, 1), e3=r(aCDt/LCD, 1), e4=r(aECt/LCE, 1),
+                e2s=rot_sym(K['e2'], 1e-3), e3s=rot_sym(K['e3'], 1e-3), e4s=rot_sym(K['e4'], 1e-3),
+                aEs=('↓' if K['aE'][1] < 0 else '↑'))
+
+# ---------------- §4: reduced moment on the crank (power balance, teacher's projection method) ----------------
+# M_P = G2·V_S2·cos α2/ω1 ± G5·V_E/ω1 − F_re·V_E/ω1, with V = segment·μ_V, so every term is (N·mm)·μ_V/ω1.
+# ps2·cos α2 is not measured as an angle: project ps2 on the vertical of the velocity plan (down from p = +, up = −).
+G2, G5 = M.DATA['G2'], M.DATA['G5']
+KM = r(M.MUV/W1, 7)                       # μ_V/ω1, m/mm: turns N·mm of the plan into N·m
+FRE_MAX_MM = r(M.FMAX/M.MUF)              # y_max of the F_re diagram, mm (μ_F = F_max / y_max)
+def mchain(j):
+    i = j % 8; v = M.vplan(i); c = vchain(i); q = M.POS[i]
+    ys2 = r(-v['s2'][1])                                 # ps2·cos α2, mm, signed (down = +)
+    pe = c['pe']; down = q['K']['VE'][1] < 0 or pe == 0
+    work = M.working(i)                                  # slider goes down: working stroke
+    yF = r(M.FMAX/M.MUF*M.fre_shape(q['sE']/M.H)) if work else 0.0   # F_re ordinate at this position, mm
+    Fr = r(yF*M.MUF, 0)
+    t2 = r(G2*ys2*KM, 2); t5 = r((1 if down else -1)*G5*pe*KM, 2); tr = r(Fr*pe*KM, 2)
+    return dict(ys2=ys2, ps2=c['ps2'], pe=pe, a5=0 if down else 180, yF=yF, Fr=Fr, t2=t2, t5=t5, tr=tr, M=r(t2+t5-tr, 1))
+MP = [mchain(j) for j in range(9)]
+MP_MAX = max(abs(x['M']) for x in MP)
+MP_YMAX = 70                                             # mm for |M_P|max (teacher: 70…80 mm)
+MU_M = r(MP_MAX/MP_YMAX, 2)                              # (N·m)/mm
+MU_PHI = r(2*3.14/160, 3)                                # rad/mm, one crank turn = 160 mm
+for x in MP: x['Mmm'] = r(x['M']/MU_M, 1)
+
+# ---------------- 1.8–1.9: work graphs and kinetic-energy increment (teacher's A4 sheet, graphical integration) ----------------
+# A4 sheet: M_P(φ) on top, A(φ) 150 mm below it. Integration pole P at OP = 40 mm left of 0 on the φ axis of M_P.
+# For each interval j-1…j: read the curve at the midpoint (ym, mm), ray from P to (0, ym) has slope ym/OP;
+# the parallel through (j-1)' reaches the vertical of j at y'_j = y'_(j-1) + ym·20/OP (20 mm = one interval).
+OP = 40                                                  # mm, polar distance (teacher: 40 mm)
+A_GAP = 150                                              # mm between the φ axes of M_P(φ) and A(φ)
+def _mid_ordinates():
+    ys = [x['Mmm'] for x in MP]; ms = M._pchip_slopes([20*j for j in range(9)], ys)
+    return [r((ys[k]+ys[k+1])/2 + 20*(ms[k]-ms[k+1])/8, 1) for k in range(8)]   # the drawn curve at the midpoint
+YMID = _mid_ordinates()                                  # ym for intervals 0-1 … 7-8, mm (signed, up = +)
+AR = [0.0]                                               # A_r ordinates 0', 1', … 8', mm (down = −)
+for _k in range(8): AR.append(r(AR[-1] + YMID[_k]*20/OP, 1))
+AM = [r(-AR[8]*j/8, 1) for j in range(9)]                # A_m: straight line from 0 to 8'' (8'' = −8', mirrored up)
+DE = [r(AM[j] + AR[j], 1) for j in range(9)]             # ΔE = A_m + A_r, mm (A_r already negative)
+YMM = r(-AR[8]*OP/160, 1)                                # M_m on the M_P axis: ray from P parallel to A_m, mm
+MU_A = r(MU_M*MU_PHI*OP, 2)                              # J/mm (= μ_ΔE)
+A_CYCLE = r(-AR[8]*MU_A, 0)                              # J, work of the resistance (= of the motor) per cycle
+M_M = r(YMM*MU_M, 1)                                     # N·m, motor moment
+DE_MAX = max(DE); DE_MIN = min(DE); J_MAX = DE.index(DE_MAX); J_MIN = DE.index(DE_MIN)
+DE_RANGE = r((DE_MAX-DE_MIN)*MU_A, 1)                    # J, ΔE_max − ΔE_min (for the flywheel later)
+
+# ---------------- 1.10: reduced moment of inertia I_P(φ) (teacher's lecture + methodology table 4) ----------------
+# I_P·ω1²/2 = m2·V_S2²/2 + I_S2·ω2²/2 + m5·V_E²/2  →  I_P = m2·(V_S2/ω1)² + I_S2·(ω2/ω1)² + m5·(V_E/ω1)²
+# V_S2, ω2, V_E: the notebook values of §2 (vchain). Teacher: m = G/g with g = 10 m/s², I_S2 from the table × 10⁻³.
+G_ACC = 10
+M2 = r(G2/G_ACC, 2); M5 = r(G5/G_ACC, 2)               # kg
+IS2 = M.DATA['IS2']*1e-3                                 # kg·m²
+def ichain(j):
+    c = vchain(j % 8)
+    a = r((c['VS2']/W1)**2, 5); b = r((c['w2']/W1)**2, 5); f = r((c['VE']/W1)**2, 5)
+    t2 = r(M2*a, 6); tw = r(IS2*b, 6); t5 = r(M5*f, 6)   # terms to 6 decimals, I_P to 5
+    return dict(VS2=c['VS2'], w2=c['w2'], VE=c['VE'], a=a, b=b, f=f, t2=t2, tw=tw, t5=t5, I=r(t2+tw+t5, 5))
+IP = [ichain(j) for j in range(9)]
+IP_MAX = max(x['I'] for x in IP); J_IMAX = [x['I'] for x in IP].index(IP_MAX)
+IP_YMAX = 80                                             # mm for I_P max (teacher: 80 mm)
+MU_I = r(IP_MAX/IP_YMAX, 7)                              # (kg·m²)/mm
+for x in IP: x['Imm'] = r(x['I']/MU_I, 1)
+
+# ---------------- checks against the exact model (printed by __main__) ----------------
+def exact_mp(j):
+    """exact M_P from the model vectors: power of G2, G5 (down) and F_re (up, working stroke only) / ω1"""
+    i = j % 8; K = M.POS[i]['K']; work = M.working(i)
+    Fre = M.FMAX*M.fre_shape(M.POS[i]['sE']/M.H) if work else 0.0
+    P = -M.DATA['G2']*K['VS2'][1] - M.DATA['G5']*K['VE'][1] + Fre*K['VE'][1]
+    return P/M.W1
+def exact_ip(j):
+    K = M.POS[j % 8]['K']
+    return (M2*M.mag(K['VS2'])**2 + IS2*K['w2']**2 + M5*M.mag(K['VE'])**2)/M.W1**2
+
+if __name__ == '__main__':
+    print('AC0', AC0, 'AC0p', AC0P, 'BC', BC, 'AB', AB, 'lAB', LAB, 'lBC', LBC, 'lBS2', LBS2, 'BS2*', BS2S)
+    print('W1', W1, 'VB4', VB4, 'VB', VB, 'PB', PB, 'aB', AB_ACC, 'PIB', PIB)
+    for i in range(8):
+        c = vchain(i); print(i, {k: (round(v, 4) if isinstance(v, float) else v) for k, v in c.items()})
+    c = achain(M.PA_POS); print('acc', M.PA_POS, {k: (round(v, 4) if isinstance(v, float) else v) for k, v in c.items()})
+    print('--- §4 M_P: notebook chain vs exact power balance ---')
+    ex = [exact_mp(j) for j in range(9)]; worst = 0.0
+    for j in range(9):
+        d = abs(MP[j]['M']-ex[j])/MP_MAX*100; worst = max(worst, d)
+        print(j, MP[j], f"exact={ex[j]:.2f} diff={MP[j]['M']-ex[j]:+.2f} ({d:.2f}% of |M_P|max)")
+    print(f'MP_MAX={MP_MAX} MU_M={MU_M} worst diff {worst:.2f}% of |M_P|max ->', 'OK' if worst < 3 else 'FAIL')
+    print('YMID', YMID); print('AR', AR); print('AM', AM); print('DE', DE)
+    print('YMM', YMM, 'MU_A', MU_A, 'A', A_CYCLE, 'M_M', M_M, 'DEmax', DE_MAX, J_MAX, 'DEmin', DE_MIN, J_MIN, 'range J', DE_RANGE)
+    print('--- 1.10 I_P: notebook chain vs exact ---'); worst = 0.0
+    for j in range(9):
+        d = abs(IP[j]['I']-exact_ip(j))/exact_ip(j)*100 if exact_ip(j) > 0 else 0; worst = max(worst, d)
+        print(j, IP[j], f"exact={exact_ip(j):.5f} diff={d:.2f}%")
+    print('M2', M2, 'M5', M5, 'IS2', IS2, 'IPmax', IP_MAX, J_IMAX, 'MU_I', MU_I, f'worst I_P diff {worst:.2f}% ->', 'OK' if worst < 2 else 'FAIL')
